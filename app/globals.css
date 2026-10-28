@@ -1,0 +1,307 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+:root {
+  color-scheme: dark;
+  --black: #050505;
+  --silver: #e8e8e8;
+  --muted: #9b9b9b;
+  --mono: 'DM Mono', monospace;
+  --display: 'Space Grotesk', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--black);
+  color: var(--silver);
+  font-family: var(--display);
+  -webkit-font-smoothing: antialiased;
+}
+
+.landing {
+  position: relative;
+  display: grid;
+  min-height: 100vh;
+  min-height: 100svh;
+  overflow: hidden;
+  isolation: isolate;
+  place-items: center;
+  background:
+    radial-gradient(ellipse at 50% 48%, #161616 0, #090909 38%, var(--black) 74%),
+    var(--black);
+}
+
+.landing::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(90deg, #0008, transparent 28% 72%, #0008),
+    linear-gradient(0deg, #000a, transparent 34% 72%, #0008);
+  content: '';
+  pointer-events: none;
+}
+
+.metal-field {
+  position: absolute;
+  z-index: -1;
+  inset: -22%;
+  overflow: hidden;
+  transform: rotate(-8deg) scale(1.05);
+}
+
+.metal-field::before,
+.metal-field::after {
+  position: absolute;
+  width: 120%;
+  height: 75%;
+  border-radius: 50%;
+  content: '';
+  filter: blur(1px);
+}
+
+.metal-field::before {
+  top: 4%;
+  left: -12%;
+  opacity: 0.62;
+  background: radial-gradient(ellipse at center, transparent 38%, #383838 39%, #ededed 39.5%, #777 40%, #171717 41%, transparent 42%, transparent 45%, #a9a9a9 45.5%, #f5f5f5 46%, #333 47%, transparent 48%);
+  animation: current-one 20s ease-in-out infinite alternate;
+}
+
+.metal-field::after {
+  right: -25%;
+  bottom: -16%;
+  opacity: 0.48;
+  background: radial-gradient(ellipse at center, transparent 39%, #171717 40%, #b9b9b9 40.5%, #f4f4f4 41%, #434343 42%, transparent 43%, transparent 47%, #595959 47.5%, #d7d7d7 48%, #222 49%, transparent 50%);
+  animation: current-two 24s ease-in-out infinite alternate;
+}
+
+.metal-wave {
+  position: absolute;
+  width: 125%;
+  height: 68%;
+  border-radius: 50%;
+  opacity: 0.38;
+  background: radial-gradient(ellipse at center, transparent 39%, #161616 40%, #c5c5c5 40.3%, #fff 40.7%, #555 41.5%, transparent 42.5%, transparent 46%, #262626 46.5%, #d7d7d7 47%, #fff 47.4%, #383838 48.5%, transparent 49.5%);
+  filter: blur(1.5px);
+  will-change: transform;
+}
+
+.metal-wave-one {
+  top: 18%;
+  left: -35%;
+  animation: current-one 17s ease-in-out infinite alternate-reverse;
+}
+
+.metal-wave-two {
+  right: -36%;
+  bottom: 8%;
+  opacity: 0.3;
+  animation: current-two 21s ease-in-out infinite alternate-reverse;
+}
+
+.metal-wave-three {
+  top: 38%;
+  left: -22%;
+  opacity: 0.2;
+  transform: rotate(12deg) scale(0.8);
+  animation: current-three 26s ease-in-out infinite alternate;
+}
+
+.hero {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100svh;
+  padding: 72px 24px;
+  place-items: center;
+  text-align: center;
+}
+
+.hero-content {
+  position: relative;
+  padding: 52px 24px;
+  animation: arrive 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.hero-content::before {
+  position: absolute;
+  z-index: -1;
+  inset: -30% -38%;
+  background: radial-gradient(ellipse, #000b 0, #0006 38%, transparent 72%);
+  content: '';
+  filter: blur(22px);
+}
+
+.hero-kicker,
+.hero-index,
+.coming-soon {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.hero-kicker {
+  margin: 0 0 21px;
+  color: #b7b7b7;
+  letter-spacing: 0.18em;
+}
+
+.hero h1 {
+  margin: 0;
+  color: #f5f5f5;
+  font-size: clamp(88px, 17vw, 190px);
+  font-weight: 600;
+  line-height: 0.9;
+  letter-spacing: 0;
+  text-shadow: 0 2px 2px #fff3, 0 14px 50px #fff2;
+}
+
+.hero-rule {
+  display: flex;
+  width: min(230px, 56vw);
+  height: 1px;
+  margin: 34px auto 23px;
+  background: linear-gradient(90deg, transparent, #777 18%, #fff 50%, #777 82%, transparent);
+  justify-content: center;
+}
+
+.hero-rule span {
+  width: 5px;
+  height: 5px;
+  margin-top: -2px;
+  border: 1px solid #e8e8e8;
+  background: var(--black);
+  transform: rotate(45deg);
+}
+
+.coming-soon {
+  margin: 0;
+  color: #e2e2e2;
+  font-size: 11px;
+  letter-spacing: 0.32em;
+}
+
+.hero-index {
+  position: absolute;
+  bottom: max(28px, env(safe-area-inset-bottom));
+  left: 50%;
+  margin: 0;
+  color: #747474;
+  letter-spacing: 0.12em;
+  transform: translateX(-50%);
+}
+
+@keyframes current-one {
+  from {
+    transform: translate3d(-4%, -3%, 0) rotate(-8deg) scale(1.02);
+  }
+  to {
+    transform: translate3d(5%, 4%, 0) rotate(4deg) scale(1.12);
+  }
+}
+
+@keyframes current-two {
+  from {
+    transform: translate3d(4%, 3%, 0) rotate(9deg) scale(1.08);
+  }
+  to {
+    transform: translate3d(-6%, -4%, 0) rotate(-5deg) scale(0.96);
+  }
+}
+
+@keyframes current-three {
+  from {
+    transform: translate3d(-3%, 5%, 0) rotate(12deg) scale(0.8);
+  }
+  to {
+    transform: translate3d(5%, -4%, 0) rotate(-2deg) scale(1);
+  }
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 600px) {
+  .metal-field {
+    inset: -14% -65%;
+    transform: rotate(-12deg) scale(1.12);
+  }
+
+  .metal-field::before,
+  .metal-field::after,
+  .metal-wave {
+    width: 180%;
+    height: 52%;
+  }
+
+  .metal-field::before {
+    top: 16%;
+    left: -45%;
+  }
+
+  .metal-field::after {
+    right: -68%;
+    bottom: 15%;
+  }
+
+  .metal-wave-one {
+    top: 20%;
+    left: -74%;
+  }
+
+  .metal-wave-two {
+    right: -78%;
+    bottom: 16%;
+  }
+
+  .metal-wave-three {
+    top: 39%;
+    left: -55%;
+  }
+
+  .hero-content {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .hero-kicker {
+    font-size: 8px;
+    letter-spacing: 0.14em;
+  }
+
+  .hero h1 {
+    font-size: clamp(76px, 23vw, 132px);
+  }
+
+  .coming-soon {
+    font-size: 10px;
+    letter-spacing: 0.25em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

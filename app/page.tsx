@@ -13,6 +13,7 @@ export default function Home() {
           <h1 id="brand-name">RILO</h1>
           <div className="hero-rule" aria-hidden="true"><span /></div>
           <p className="coming-soon">COMING SOON</p>
+          <a className="landing-app-link" href="/app">Explore tokens</a>
         </div>
         <p className="hero-index" aria-hidden="true">RILO&nbsp; / &nbsp;2026</p>
       </section>

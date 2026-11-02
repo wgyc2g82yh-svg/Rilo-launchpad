@@ -2,17 +2,25 @@
   "name": "rilo-launchpad",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
+  "overrides": { "postcss": "^8.5.32" },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test:api": "node tests/api-smoke.mjs"
+  },
+  "engines": {
+    "node": ">=22.18.0"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
     "next": "^15.5.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

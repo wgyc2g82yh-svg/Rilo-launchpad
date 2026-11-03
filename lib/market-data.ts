@@ -1,4 +1,6 @@
 import "server-only";
+import { tokenImageUrl } from "@/lib/token-image";
+import { CHART_INTERVALS, isChartInterval } from "@/lib/chart-options";
 import { isSolanaAddress } from "@/lib/token-analysis";
 import { normalizeCandles } from "@/lib/integration-types";
 import type { Market, MarketResponse } from "@/lib/integration-types";
@@ -22,7 +24,7 @@ function parseMarkets(value: unknown, mint?: string): Market[] {
     const token = included.get(tokenId) ?? {};
     const volume = a.volume_usd as Record<string, unknown> | undefined;
     const change = a.price_change_percentage as Record<string, unknown> | undefined;
-    return [{ pool: String(a.address), mint: address, name: String(token.name || a.name || "Token").slice(0, 100), symbol: String(token.symbol || String(a.name || "TOKEN").split(" / ")[tokenSide === "base" ? 0 : 1] || "TOKEN").slice(0, 20), price: num(a[`${tokenSide}_token_price_usd`]), volume24h: num(volume?.h24), liquidity: num(a.reserve_in_usd), change24h: tokenSide === "base" ? num(change?.h24) : null, createdAt: typeof a.pool_created_at === "string" ? a.pool_created_at : null, decimals: Number.isInteger(token.decimals) ? Number(token.decimals) : null, dex: String(item.relationships?.dex?.data?.id || "DEX").slice(0, 50), tokenSide } satisfies Market];
+    return [{ pool: String(a.address), mint: address, name: String(token.name || a.name || "Token").slice(0, 100), symbol: String(token.symbol || String(a.name || "TOKEN").split(" / ")[tokenSide === "base" ? 0 : 1] || "TOKEN").slice(0, 20), imageUrl: tokenImageUrl(token.image_url), price: num(a[`${tokenSide}_token_price_usd`]), volume24h: num(volume?.h24), liquidity: num(a.reserve_in_usd), change24h: tokenSide === "base" ? num(change?.h24) : null, createdAt: typeof a.pool_created_at === "string" ? a.pool_created_at : null, decimals: Number.isInteger(token.decimals) ? Number(token.decimals) : null, dex: String(item.relationships?.dex?.data?.id || "DEX").slice(0, 50), tokenSide } satisfies Market];
   });
 }
 export async function discoverMarkets(mode: string): Promise<MarketResponse> {
@@ -33,10 +35,11 @@ export async function tokenMarket(mint: string): Promise<MarketResponse> {
   if (!isSolanaAddress(mint)) throw new IntegrationError(400, "Invalid token address.");
   return cached(`token-market:${mint}`, 60_000, async () => ({ markets: parseMarkets(await fetchProvider(`${root()}/networks/solana/tokens/${mint}/pools?include=base_token,quote_token,dex`), mint).sort((a, b) => (b.liquidity ?? 0) - (a.liquidity ?? 0)), observedAt: new Date().toISOString(), source: "GeckoTerminal" }));
 }
-export async function tokenChart(pool: string, side: string) {
-  if (!isSolanaAddress(pool) || !["base", "quote"].includes(side)) throw new IntegrationError(400, "Invalid chart request.");
-  return cached(`chart:${pool}:${side}`, 90_000, async () => {
-    const payload = await fetchProvider(`${root()}/networks/solana/pools/${pool}/ohlcv/minute?aggregate=5&limit=120&currency=usd&token=${side}`) as { data?: { attributes?: { ohlcv_list?: unknown } } };
-    return { candles: normalizeCandles(payload?.data?.attributes?.ohlcv_list), observedAt: new Date().toISOString(), source: "GeckoTerminal · 5-minute OHLCV" };
+export async function tokenChart(pool: string, side: string, interval = "5m") {
+  if (!isSolanaAddress(pool) || !["base", "quote"].includes(side) || !isChartInterval(interval)) throw new IntegrationError(400, "Choose a valid pool, token side, and chart interval (live, 5m, or 4h).");
+  const options = CHART_INTERVALS[interval];
+  return cached(`chart:${pool}:${side}:${interval}`, options.cacheMs, async () => {
+    const payload = await fetchProvider(`${root()}/networks/solana/pools/${pool}/ohlcv/${options.timeframe}?aggregate=${options.aggregate}&limit=120&currency=usd&token=${side}`) as { data?: { attributes?: { ohlcv_list?: unknown } } };
+    return { candles: normalizeCandles(payload?.data?.attributes?.ohlcv_list), interval, observedAt: new Date().toISOString(), source: "GeckoTerminal", refreshMs: options.refreshMs };
   });
 }

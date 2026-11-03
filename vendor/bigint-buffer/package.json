@@ -1,1 +1,1 @@
-
+{"name":"@rilo/bigint-buffer-compat","version":"1.0.0","private":true,"type":"commonjs","main":"index.cjs","types":"index.d.ts","dependencies":{"buffer":"^6.0.3"}}

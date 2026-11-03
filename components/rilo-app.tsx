@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { Mark, Star, XIcon } from "@/components/icons";
 import { WalletButton } from "@/components/wallet-button";
 import { LaunchForm } from "@/components/launch-form";
+import { WalletProvider } from "@/components/wallet-provider";
+import { MarketFeed } from "@/components/market-feed";
+import { MarketTerminal } from "@/components/market-terminal";
 import { formatSupply, isSolanaAddress } from "@/lib/token-analysis";
 import type { Scan } from "@/lib/token-analysis";
 
@@ -12,9 +15,11 @@ type Status = { configured: boolean; connected: boolean; genesisHash?: string };
 const WATCH_KEY = "rilo-watchlist-v1";
 const shorten = (address: string) => `${address.slice(0, 6)}…${address.slice(-6)}`;
 
-export function RiloApp() {
+export function RiloApp() { return <WalletProvider><RiloDashboard /></WalletProvider>; }
+function RiloDashboard() {
   const [tab, setTab] = useState<"discover" | "launch">("discover");
   const [mint, setMint] = useState("");
+  const [selectedMint, setSelectedMint] = useState("");
   const [scan, setScan] = useState<Scan | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -48,7 +53,7 @@ export function RiloApp() {
     if (!isSolanaAddress(value)) { setError("Paste a valid Solana token mint address."); return; }
     controller.current?.abort();
     const abort = new AbortController(); controller.current = abort;
-    setBusy(true); setError(""); setScan(null); setMint(value); setTab("discover"); setWatchOpen(false);
+    setBusy(true); setError(""); setScan(null); setMint(value); setSelectedMint(value); setTab("discover"); setWatchOpen(false);
     try {
       const response = await fetch(`/api/solana/scan?mint=${encodeURIComponent(value)}`, { signal: abort.signal });
       const data = await response.json();
@@ -79,6 +84,7 @@ export function RiloApp() {
         {error && <p className="form-error" role="alert">{error}</p>}
         {storageNotice && <p className="form-note" role="status">{storageNotice}</p>}
         {busy && <div className="scan-progress" role="status"><span />Reading token data from the chain…</div>}
+        {selectedMint && <MarketTerminal key={selectedMint} mint={selectedMint} decimals={scan?.info.decimals} onClose={() => { setSelectedMint(""); setScan(null); setError(""); }} />}
         {scan ? <section className="scan-results" aria-label="Token analysis">
           <div className="result-heading"><div><p className="eyebrow">TOKEN ANALYSIS · {scan.program.toUpperCase()}</p><h2 className="mono">{shorten(scan.mint)}</h2></div><div className="result-actions"><button className="quiet-button" onClick={() => void copy()}>{copied ? "Copied" : "Copy address"}</button><button className="icon-button" aria-label={watch.some(item => item.mint === scan.mint) ? "Remove token from watchlist" : "Add token to watchlist"} aria-pressed={watch.some(item => item.mint === scan.mint)} onClick={() => toggleWatch(scan.mint)}><Star filled={watch.some(item => item.mint === scan.mint)} /></button></div></div>
           <p className="coverage-note">Partial coverage. These observations do not establish whether a launch is safe or a rug pull.</p>
@@ -86,8 +92,8 @@ export function RiloApp() {
           <div className="analysis-grid"><div className="panel checks-panel"><div className="panel-heading"><h3>Launch intelligence</h3><span className="badge">PARTIAL COVERAGE</span></div><div className="check-list">{scan.checks.map(check => <article className={`check-row ${check.state}`} key={check.title}><span className="check-indicator" aria-hidden="true">{check.state === "attention" ? "!" : check.state === "observed" ? "·" : "—"}</span><div><h4>{check.title}</h4><p>{check.detail}</p></div><span className="check-state">{check.state === "attention" ? "Review" : check.state === "observed" ? "Observed" : "Not checked"}</span></article>)}</div></div>
             <aside className="panel holders-panel"><div className="panel-heading"><h3>Supply distribution</h3></div><p className="subtle">Largest token accounts, not verified wallet owners. Pool and exchange accounts are included.</p>{scan.accounts.length ? <ol className="holder-list">{scan.accounts.map((account, index) => <li key={account.address}><div><span className="rank">{String(index + 1).padStart(2, "0")}</span><span className="mono">{shorten(account.address)}</span><strong>{account.share === null ? "—" : `${account.share.toFixed(2)}%`}</strong></div><span className="holder-bar"><i style={{ width: `${Math.min(account.share ?? 0, 100)}%` }} /></span></li>)}</ol> : <p className="empty-note">No largest-account data is available.</p>}<p className="subtle">Authority and account readings are separate RPC snapshots. Balances may change between them.</p></aside>
           </div>
-        </section> : !busy && <div className="discovery-grid"><section className="panel intelligence-panel"><div className="panel-heading"><div><p className="eyebrow">SIGNAL ENGINE</p><h2>Every signal needs evidence.</h2></div><span className="badge">READ ONLY</span></div><div className="engine-art" aria-hidden="true"><div className="engine-orbit orbit-one" /><div className="engine-orbit orbit-two" /><div className="engine-core"><Mark /></div><span className="engine-label label-one">AUTHORITY</span><span className="engine-label label-two">DISTRIBUTION</span><span className="engine-label label-three">ON-CHAIN DATA</span></div><p className="engine-caption">Paste a mint address to inspect the token. Unchecked signals stay visible, so missing data never becomes a clean-launch badge.</p></section><aside className="capabilities"><div className="panel capability-card"><span className="feature-number">01 / OBSERVE</span><h3>Token controls</h3><p>See whether supply can be increased or token accounts can be frozen.</p><span className="feature-state">Available with RPC</span></div><div className="panel capability-card"><span className="feature-number">02 / INSPECT</span><h3>Supply distribution</h3><p>Understand how much supply sits in the largest token accounts.</p><span className="feature-state">Available with RPC</span></div><div className="panel capability-card"><span className="feature-number">03 / CONNECT</span><h3>Wallet relationships</h3><p>Bundle analysis and developer history require launch indexing.</p><span className="feature-state pending">Integration pending</span></div></aside></div>}
-        <section className="panel market-pending"><div><p className="eyebrow">MARKET TERMINAL</p><h3>Charts & trading</h3><p>Live market feeds and swap execution are not connected in this version.</p></div><div className="trade-buttons"><button className="metal-button" disabled>Buy</button><button className="quiet-button" disabled>Sell</button></div></section>
+        </section> : !busy && !selectedMint && <div className="discovery-grid"><section className="panel intelligence-panel"><div className="panel-heading"><div><p className="eyebrow">SIGNAL ENGINE</p><h2>Every signal needs evidence.</h2></div><span className="badge">READ ONLY</span></div><div className="engine-art" aria-hidden="true"><div className="engine-orbit orbit-one" /><div className="engine-orbit orbit-two" /><div className="engine-core"><Mark /></div><span className="engine-label label-one">AUTHORITY</span><span className="engine-label label-two">DISTRIBUTION</span><span className="engine-label label-three">ON-CHAIN DATA</span></div><p className="engine-caption">Paste a mint address to inspect the token. Unchecked signals stay visible, so missing data never becomes a clean-launch badge.</p></section><aside className="capabilities"><div className="panel capability-card"><span className="feature-number">01 / OBSERVE</span><h3>Token controls</h3><p>See whether supply can be increased or token accounts can be frozen.</p><span className="feature-state">Available with RPC</span></div><div className="panel capability-card"><span className="feature-number">02 / INSPECT</span><h3>Supply distribution</h3><p>Understand how much supply sits in the largest token accounts.</p><span className="feature-state">Available with RPC</span></div><div className="panel capability-card"><span className="feature-number">03 / CONNECT</span><h3>Wallet relationships</h3><p>Bundle analysis and developer history require launch indexing.</p><span className="feature-state pending">Integration pending</span></div></aside></div>}
+        {!selectedMint && <MarketFeed onSelect={value => void check(value)} />}
       </> : <><section className="app-intro compact"><div><h1>Your next launch.<br /><span>In full view.</span></h1><p>Create and save your token profile, then review it before deployment.</p></div></section><LaunchForm /></>}
       <footer className="app-footer"><span className="powered-by">POWERED BY RILO</span><span>On-chain observations. Transparent coverage.</span><a href="https://x.com/RiloProtocol" target="_blank" rel="noopener noreferrer">@RiloProtocol</a></footer>
     </div>

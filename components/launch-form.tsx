@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { DRAFT_KEY, EMPTY_DRAFT, readDraft, validateDraft } from "@/lib/launch-draft";
 import type { LaunchDraft } from "@/lib/launch-draft";
+import { LaunchActions } from "@/components/launch-actions";
+import { FeeEngine } from "@/components/fee-engine";
 
 export function LaunchForm() {
   const [draft, setDraft] = useState<LaunchDraft>({ ...EMPTY_DRAFT });
@@ -72,11 +74,12 @@ export function LaunchForm() {
       </form> : <div className="launch-review">
         <div className="review-profile">{displayImage ? <img src={displayImage} alt="Your token" width="72" height="72" /> : <div className="token-placeholder">{draft.ticker.slice(0, 1)}</div>}<div><h3>{draft.name}</h3><p className="mono">${draft.ticker}</p></div></div>
         <p className="review-description">{draft.description || "No description added."}</p>
-        <dl><div><dt>Website</dt><dd>{draft.website || "Not added"}</dd></div><div><dt>X</dt><dd>{draft.x ? `@${draft.x}` : "Not added"}</dd></div><div><dt>Deployment</dt><dd>Not connected</dd></div></dl>
-        <p className="form-note">Your profile is ready. On-chain deployment, launch fees, and liquidity setup still need integration before tokens can be launched.</p>
-        <div className="form-actions"><button className="quiet-button" onClick={() => setReview(false)}>Edit profile</button><button className="metal-button" disabled>Deployment unavailable</button></div>
+        <dl><div><dt>Website</dt><dd>{draft.website || "Not added"}</dd></div><div><dt>X</dt><dd>{draft.x ? `@${draft.x}` : "Not added"}</dd></div><div><dt>Launch mechanism</dt><dd>Meteora fair-launch curve</dd></div></dl>
+        <LaunchActions draft={draft} />
+        <div className="form-actions"><button className="quiet-button" onClick={() => setReview(false)}>Edit profile</button></div>
       </div>}
     </div>
-    <aside className="launch-sidebar"><div className="panel"><p className="eyebrow">BUILT IN THE OPEN</p><h3>A clear view of every launch.</h3><p>Start with your token’s identity. Review every detail before it reaches the chain.</p><div className="sidebar-rule" /><p className="subtle">Rebates and buybacks are planned features. No fee or reward mechanism is active in this version.</p></div><button className="quiet-button" onClick={reset}>Clear draft</button></aside>
+    <aside className="launch-sidebar"><div className="panel"><p className="eyebrow">BUILT IN THE OPEN</p><h3>A clear view of every launch.</h3><p>Start with your token’s identity. Review every detail before it reaches the chain.</p><div className="sidebar-rule" /><p className="subtle">Creators claim 1% of distributable curve trading fees. Graduation uses locked Meteora liquidity positions. Launch availability depends on the platform’s active on-chain configuration.</p></div><button className="quiet-button" onClick={reset}>Clear draft</button></aside>
+    <div className="fee-engine-container"><FeeEngine /></div>
   </section>;
 }

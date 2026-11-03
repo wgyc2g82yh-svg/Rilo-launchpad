@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { fromUnits, toUnits, normalizeCandles, MAINNET_GENESIS } from '../lib/integration-types.ts';
 import { PublicKey } from '@solana/web3.js';
 import integerBuffer from '../vendor/bigint-buffer/index.cjs';
-import { buildCurveWithMarketCap, ActivationType, BaseFeeMode, CollectFeeMode, DammV2DynamicFeeMode, MigratedCollectFeeMode, MigrationFeeOption, MigrationOption, TokenAuthorityOption, TokenType } from '@meteora-ag/dynamic-bonding-curve-sdk';
+import { buildLaunchCurve } from '../lib/launch-policy.ts';
+import { LAUNCH_FEE_LAMPORTS } from '../lib/integration-types.ts';
+import { TokenAuthorityOption, PROTOCOL_POOL_CREATION_FEE_PERCENT } from '@meteora-ag/dynamic-bonding-curve-sdk';
 
 test('amount entry is exact above floating point precision and rejects ambiguous values', () => {
   assert.equal(toUnits('9007199254.740993',6),'9007199254740993');
@@ -34,13 +36,9 @@ test('native-free integer adapter checks widths and round-trips Solana integers'
   assert.throws(()=>integerBuffer.toBufferBE(1n,-1));
 });
 test('SDK builds the chosen fee-share and locked-liquidity policy without premine or transfer tax',()=>{
-  const curve=buildCurveWithMarketCap({
-    token:{tokenType:TokenType.SPLToken,tokenBaseDecimal:6,tokenQuoteDecimal:9,tokenAuthorityOption:TokenAuthorityOption.Immutable,totalTokenSupply:1_000_000_000,leftover:0},
-    fee:{baseFeeParams:{baseFeeMode:BaseFeeMode.FeeSchedulerLinear,feeSchedulerParam:{startingFeeBps:100,endingFeeBps:100,numberOfPeriod:0,totalDuration:0}},dynamicFeeEnabled:false,collectFeeMode:CollectFeeMode.QuoteToken,creatorTradingFeePercentage:1,poolCreationFee:0,enableFirstSwapWithMinFee:true},
-    migration:{migrationOption:MigrationOption.MET_DAMM_V2,migrationFeeOption:MigrationFeeOption.Customizable,migrationFee:{feePercentage:0,creatorFeePercentage:0},migratedPoolFee:{collectFeeMode:MigratedCollectFeeMode.QuoteToken,dynamicFee:DammV2DynamicFeeMode.Disabled,poolFeeBps:100}},
-    liquidityDistribution:{partnerLiquidityPercentage:0,creatorLiquidityPercentage:0,partnerPermanentLockedLiquidityPercentage:99,creatorPermanentLockedLiquidityPercentage:1},
-    lockedVesting:{totalLockedVestingAmount:0,numberOfVestingPeriod:0,cliffUnlockAmount:0,totalVestingDuration:0,cliffDurationFromMigrationTime:0},activationType:ActivationType.Timestamp,initialMarketCap:100,migrationMarketCap:3000,
-  });
+  const curve=buildLaunchCurve({supply:1_000_000_000,initialMarketCap:100,migrationMarketCap:3000,feeBps:100});
+  assert.equal(curve.poolCreationFee.toString(), LAUNCH_FEE_LAMPORTS);
+  assert.equal(curve.poolCreationFee.muln(100-PROTOCOL_POOL_CREATION_FEE_PERCENT).divn(100).toString(),'450000000');
   assert.equal(curve.creatorTradingFeePercentage,1); assert.equal(curve.tokenUpdateAuthority,TokenAuthorityOption.Immutable);
   assert.equal(curve.partnerPermanentLockedLiquidityPercentage+curve.creatorPermanentLockedLiquidityPercentage,100);
   assert.equal(curve.creatorLiquidityPercentage,0); assert.equal(curve.partnerLiquidityPercentage,0);

@@ -61,9 +61,9 @@ export function analyzeMint(mint: string, program: string, info: MintInfo, large
     { title: "Freeze authority", state: info.freezeAuthority ? "attention" : "observed", detail: info.freezeAuthority ? "An authority can freeze token accounts." : "Freeze authority is revoked at this snapshot." },
     { title: "Largest token accounts", state: topAccountsShare === null ? "unavailable" : topAccountsShare >= 50 ? "attention" : "observed", detail: topAccountsShare === null ? "Largest-account data is unavailable." : `${accounts.length} token accounts hold ${topAccountsShare.toFixed(2)}% of supply. Accounts may be pools, exchanges, or multiple accounts belonging to one owner.` },
     { title: "Token extensions", state: program === TOKEN_2022_PROGRAM ? "unavailable" : "observed", detail: program === TOKEN_2022_PROGRAM ? "Token-2022 extension behavior is not fully analyzed. Transfer restrictions or additional authorities may apply." : "This mint uses the original SPL Token program." },
-    { title: "Bundle detection", state: "unavailable", detail: "Launch transaction indexing and funding relationships are not connected yet." },
-    { title: "Developer history", state: "unavailable", detail: "Creator attribution and historical launch records are not connected yet." },
-    { title: "Liquidity & sellability", state: "unavailable", detail: "Pool ownership, liquidity locks, and sell simulation are not checked." },
+    { title: "Bundle detection", state: "unavailable", detail: "Private bundle membership is not available. The wallet panel separately reports sampled public funding evidence." },
+    { title: "Developer history", state: "unavailable", detail: "A creator is not inferred from the mint authority. See the verified creator panel when a matching Meteora pool exists." },
+    { title: "Liquidity & sellability", state: "unavailable", detail: "No general liquidity-lock audit is performed. Trade preparation and pool state are shown separately." },
   ];
   return { mint, checkedAt: new Date().toISOString(), slot, program: program === TOKEN_PROGRAM ? "SPL Token" : "Token-2022", info, accounts, topAccountsShare, checks, coverage: "partial" };
 }

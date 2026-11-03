@@ -1,7 +1,7 @@
 export const SOL_MINT = "So11111111111111111111111111111111111111112";
 export const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 export const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
-export type Market = { pool: string; mint: string; name: string; symbol: string; price: number | null; volume24h: number | null; liquidity: number | null; change24h: number | null; createdAt: string | null; decimals: number | null; dex: string; tokenSide: "base" | "quote" };
+export type Market = { pool: string; mint: string; name: string; symbol: string; imageUrl: string | null; price: number | null; volume24h: number | null; liquidity: number | null; change24h: number | null; createdAt: string | null; decimals: number | null; dex: string; tokenSide: "base" | "quote" };
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: number };
 export type MarketResponse = { markets: Market[]; observedAt: string; source: string };
 export type Order = { transaction: string | null; requestId: string; inputMint: string; outputMint: string; inAmount: string; outAmount: string; otherAmountThreshold: string; feeBps: number; feeMint: string; slippageBps: number; priceImpactPct: string; router: string; ticket?: string; expiresAt?: number; errorMessage?: string; lastValidBlockHeight?: number };

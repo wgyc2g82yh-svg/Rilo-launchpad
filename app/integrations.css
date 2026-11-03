@@ -56,3 +56,19 @@
 .launch-actions .metal-button { width: 100%; }
 @media (max-width: 900px) { .terminal-grid { grid-template-columns: minmax(0,1fr); } .trade-panel { max-width: none; } }
 @media (max-width: 600px) { .market-feed { padding: 22px 17px; } .market-feed .panel-heading, .fee-engine .panel-heading, .wallet-intelligence .panel-heading { align-items: flex-start; flex-wrap: wrap; } .segmented { width: 100%; } .segmented button { flex: 1; } .chart-panel, .trade-panel, .wallet-intelligence, .creator-history, .fee-engine { padding: 20px; } .market-metrics { gap: 18px; } .market-metrics strong { font-size: 18px; } .market-metrics span { font-size: 8px; } .trade-panel input, .fee-engine input, .trade-panel select { font-size: 16px; } .fee-columns { grid-template-columns: 1fr; gap: 25px; } .fee-engine h2 { font-size: 20px; } .pool-selector { flex-wrap: wrap; } }
+
+.chart-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin:16px 0; }
+.chart-toolbar .chart-intervals { width:fit-content; margin:0; min-width:210px; }
+.chart-toolbar .chart-intervals button { min-height:44px; padding:8px 18px; }
+.chart-toolbar .data-caption { margin:0; }
+.token-avatar { overflow:hidden; }
+.token-avatar img { display:block; width:100%; height:100%; object-fit:cover; }
+.token-avatar-large { width:48px; height:48px; font-size:14px; }
+.terminal-token-title { display:flex; align-items:center; gap:12px; margin-top:10px; }
+.terminal-token-title h2 { margin:0; }
+.liquidity-status { margin-top:20px; }
+.liquidity-status .panel-heading { flex-wrap:wrap; gap:12px; }
+.liquidity-readings { display:flex; flex-wrap:wrap; gap:24px; margin:18px 0; }
+.liquidity-readings span { display:block; font-size:12px; color:#9797a4; margin-bottom:8px; }
+.liquidity-readings strong { display:block; font-size:20px; font-weight:400; }
+.liquidity-unlocked,.liquidity-partial { color:#e2c89a; border-color:#e2c89a55; }

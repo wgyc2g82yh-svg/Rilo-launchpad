@@ -12,6 +12,7 @@ const signature=bs58.encode(new Uint8Array(64).fill(3));
 const hash=value=>createHash('sha256').update(value).digest('hex');
 function ticket(value){const data=Buffer.from(JSON.stringify(value)).toString('base64url');return `${data}.${createHmac('sha256',secret).update(data).digest('base64url')}`;}
 let sent=0,executed=0;
+const chartRequests=[];
 const fixture=createServer(async(request,response)=>{
   const url=new URL(request.url,'http://localhost');let result;
   if(request.method==='GET'){
@@ -19,8 +20,9 @@ const fixture=createServer(async(request,response)=>{
       const wallet=url.searchParams.get('taker');
       const tx=wallet?new VersionedTransaction(new TransactionMessage({payerKey:new PublicKey(wallet),recentBlockhash:mint,instructions:[SystemProgram.transfer({fromPubkey:new PublicKey(wallet),toPubkey:receiver.publicKey,lamports:1})]}).compileToV0Message()):null;
       result={inputMint:url.searchParams.get('inputMint'),outputMint:url.searchParams.get('outputMint'),inAmount:url.searchParams.get('amount'),outAmount:'900000',otherAmountThreshold:'891000',feeBps:2,feeMint:mint,slippageBps:100,priceImpactPct:'0.1',router:'fixture',requestId:'fixture-order',transaction:tx?Buffer.from(tx.serialize()).toString('base64'):null};
-    }else if(url.pathname.includes('/ohlcv/'))result={data:{attributes:{ohlcv_list:[[120,1,2,1,2,30],[60,1,1,1,1,20]]}}};
-    else result={data:[{id:`solana_${mint}`,attributes:{address:mint,name:'RILO / SOL',base_token_price_usd:'0.01',volume_usd:{h24:'1000'},reserve_in_usd:'5000',price_change_percentage:{h24:'2.5'},pool_created_at:'2026-01-01T00:00:00Z'},relationships:{base_token:{data:{id:`solana_${token}`}},quote_token:{data:{id:`solana_${mint}`}},dex:{data:{id:'test-dex'}}}}],included:[{id:`solana_${token}`,attributes:{name:'Fixture token',symbol:'TEST',decimals:6}}]};
+    }else if(url.pathname.endsWith('/report'))result={mint:token,creator:signer.publicKey.toBase58(),markets:[{pubkey:mint,mintA:token,mintB:mint,mintLP:token,lp:{lpLocked:75,lpUnlocked:25,lpLockedPct:75}}]};
+    else if(url.pathname.includes('/ohlcv/')){chartRequests.push({path:url.pathname,aggregate:url.searchParams.get('aggregate'),side:url.searchParams.get('token')});result={data:{attributes:{ohlcv_list:[[120,1,2,1,2,30],[60,1,1,1,1,20]]}}};}
+    else result={data:[{id:`solana_${mint}`,attributes:{address:mint,name:'RILO / SOL',base_token_price_usd:'0.01',volume_usd:{h24:'1000'},reserve_in_usd:'5000',price_change_percentage:{h24:'2.5'},pool_created_at:'2026-01-01T00:00:00Z'},relationships:{base_token:{data:{id:`solana_${token}`}},quote_token:{data:{id:`solana_${mint}`}},dex:{data:{id:'test-dex'}}}}],included:[{id:`solana_${token}`,attributes:{name:'Fixture token',symbol:'TEST',decimals:6,image_url:'https://example.com/token.png'}}]};
     response.setHeader('Content-Type','application/json');response.end(JSON.stringify(result));return;
   }
   let body='';for await(const chunk of request)body+=chunk;const input=JSON.parse(body);
@@ -34,14 +36,23 @@ const fixture=createServer(async(request,response)=>{
 fixture.listen(0,'127.0.0.1');await once(fixture,'listening');
 const reservation=createServer();reservation.listen(0,'127.0.0.1');await once(reservation,'listening');const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
 const base=`http://127.0.0.1:${port}`,upstream=`http://127.0.0.1:${fixture.address().port}`;
-const child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(port)],{env:{...process.env,SOLANA_RPC_URL:upstream,GECKO_API_URL:upstream,JUPITER_API_URL:upstream,JUPITER_API_KEY:'fixture-only',APP_SIGNING_SECRET:secret,APP_ORIGIN:base,ENABLE_MAINNET_TRANSACTIONS:'true'},stdio:['ignore','pipe','pipe']});
+const child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(port)],{env:{...process.env,SOLANA_RPC_URL:upstream,GECKO_API_URL:upstream,RUGCHECK_API_URL:upstream,JUPITER_API_URL:upstream,JUPITER_API_KEY:'fixture-only',APP_SIGNING_SECRET:secret,APP_ORIGIN:base,ENABLE_MAINNET_TRANSACTIONS:'true'},stdio:['ignore','pipe','pipe']});
 let logs='';child.stdout.on('data',chunk=>logs+=chunk);child.stderr.on('data',chunk=>logs+=chunk);
 const get=async(path)=>{const r=await fetch(base+'/api/rilo/'+path);return {status:r.status,body:await r.json()};};
 const post=async(path,body,origin=base)=>{const r=await fetch(base+'/api/rilo/'+path,{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
 try{
   let ready=false;for(let n=0;n<60;n++){try{if((await fetch(base+'/app')).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,200));}assert.ok(ready,logs);
-  const feed=await get('discover?mode=trending');assert.equal(feed.status,200);assert.equal(feed.body.markets[0].symbol,'TEST');assert.equal(feed.body.markets[0].volume24h,1000);
+  const feed=await get('discover?mode=trending');assert.equal(feed.status,200);assert.equal(feed.body.markets[0].symbol,'TEST');assert.equal(feed.body.markets[0].volume24h,1000);assert.equal(feed.body.markets[0].imageUrl,'https://example.com/token.png');
+  const liquidity=await get(`liquidity?mint=${token}&pool=${mint}`);assert.equal(liquidity.status,200);assert.equal(liquidity.body.status,'partial');assert.equal(liquidity.body.lockedPercent,75);assert.equal(liquidity.body.developerControl,'unverified');
+  assert.equal((await get(`liquidity?mint=${token}&pool=${signer.publicKey.toBase58()}`)).body.status,'unknown');
   const chart=await get(`chart?pool=${mint}&side=base`);assert.equal(chart.body.candles[0].time,60);
+  assert.equal(chart.body.interval,'5m');
+  const live=await get(`chart?pool=${mint}&side=base&interval=live`);assert.equal(live.status,200);assert.equal(live.body.refreshMs,15000);
+  const fourHour=await get(`chart?pool=${mint}&side=quote&interval=4h`);assert.equal(fourHour.status,200);assert.equal(fourHour.body.interval,'4h');
+  assert.deepEqual(chartRequests,[{path:`/networks/solana/pools/${mint}/ohlcv/minute`,aggregate:'5',side:'base'},{path:`/networks/solana/pools/${mint}/ohlcv/minute`,aggregate:'1',side:'base'},{path:`/networks/solana/pools/${mint}/ohlcv/hour`,aggregate:'4',side:'quote'}]);
+  await get(`chart?pool=${mint}&side=base&interval=live`);assert.equal(chartRequests.length,3,'interval-specific cache reuses matching requests');
+  for(const invalid of ['1h','__proto__','constructor'])assert.equal((await get(`chart?pool=${mint}&interval=${invalid}`)).status,400);
+  assert.equal((await get(`chart?pool=${mint}&side=invalid&interval=live`)).status,400);
   assert.equal((await get('discover?mode=bad')).status,400);
   assert.equal((await post('transaction/submit',{},'https://attacker.example')).status,403);
   assert.equal((await get('curve')).status,503);

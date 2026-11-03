@@ -7,6 +7,7 @@ import { launchChallenge, prepareLaunch } from "@/lib/launch-service";
 import { address, submitBuiltTransaction, transactionStatus } from "@/lib/chain-transactions";
 import { analyzeWallets } from "@/lib/wallet-analysis";
 import { isSolanaAddress } from "@/lib/token-analysis";
+import { tokenLiquidity } from "@/lib/liquidity-service";
 import { rpc } from "@/lib/solana-rpc";
 
 export const runtime = "nodejs";
@@ -21,7 +22,8 @@ async function handle(request: NextRequest) {
         if (path === "status") return { market: true, trading: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN && process.env.SOLANA_RPC_URL && process.env.ENABLE_MAINNET_TRANSACTIONS === "true"), rpc: Boolean(process.env.SOLANA_RPC_URL), signing: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN), launches: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN && process.env.SOLANA_RPC_URL && process.env.RILO_DBC_CONFIG && process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.SUPABASE_URL), config: process.env.RILO_DBC_CONFIG || null, treasury: process.env.RILO_TREASURY_ADDRESS || null, buybackMint: process.env.RILO_TOKEN_MINT || null, mainnetEnabled: process.env.ENABLE_MAINNET_TRANSACTIONS === "true", origin: process.env.APP_ORIGIN || null };
         if (path === "discover") return discoverMarkets(params.get("mode") || "trending");
         if (path === "market") return tokenMarket(address(params.get("mint")));
-        if (path === "chart") return tokenChart(address(params.get("pool")), params.get("side") || "base");
+        if (path === "chart") return tokenChart(address(params.get("pool")), params.get("side") || "base", params.get("interval") || "5m");
+        if (path === "liquidity") return tokenLiquidity(address(params.get("mint")), address(params.get("pool")));
         if (path === "order") return swapOrder(Object.fromEntries(params));
         if (path === "curve/order") return curveSwap(Object.fromEntries(params));
         if (path === "curve") return curveSummary();

@@ -98,3 +98,13 @@ Unit and local-provider integration tests cover exact amount conversion, candles
 - [GeckoTerminal API](https://api.geckoterminal.com/docs/index.html)
 - [Solana RPC](https://solana.com/docs/rpc/http)
 - [Phantom connection](https://docs.phantom.com/solana/establishing-a-connection)
+
+### Market chart intervals
+
+The terminal offers Live (one-minute candles, polled every 15 seconds), 5m, and 4h. Historical views refresh every minute. GeckoTerminal is an indexed, cached source and can lag by about a minute; Live does not imply tick streaming. Server caches are isolated by pool, token side, and interval. Hidden tabs pause chart requests, failed requests retry after one minute, and chart refreshes preserve the viewport. Terminal price, volume, and liquidity snapshots refresh every minute.
+
+### Token artwork and liquidity evidence
+
+Market cards and terminal headings render GeckoTerminal token `image_url` artwork, with HTTPS/IPFS support and an initials fallback for missing or failed images. Images are loaded directly by the browser with no referrer.
+
+The liquidity panel reads RugCheck's public report for the selected mint and pool, cached for one minute. It shows reported locked/burned, partially locked, unlocked, or unverified LP tokens. Missing or inconsistent values, unmatched pools, and position-based pools with placeholder LP-token fields stay unverified. The percentage covers the provider's tracked LP tokens, not total token supply, dollar liquidity, or all markets. The integration does not independently verify locker duration or developer withdrawal control. It never interprets unlocked LP as proof the developer owns it. Provider outages show unverified status, rather than a stale positive badge.

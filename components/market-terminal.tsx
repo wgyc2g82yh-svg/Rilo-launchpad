@@ -4,6 +4,8 @@ import { fromUnits, SOL_MINT, toUnits } from "@/lib/integration-types";
 import type { BuiltTransaction, Market, MarketResponse, Order, PoolDetails } from "@/lib/integration-types";
 import { rilo, signBuilt, signSwap, confirmSignature } from "@/lib/rilo-client";
 import { useWallet } from "@/components/wallet-provider";
+import { TokenAvatar } from "@/components/token-avatar";
+import { LiquidityStatus } from "@/components/liquidity-status";
 import { TokenChart } from "@/components/token-chart";
 import { usd } from "@/components/market-feed";
 import { WalletIntelligence } from "@/components/wallet-intelligence";
@@ -15,9 +17,23 @@ export function MarketTerminal({ mint, decimals, onClose }: { mint: string; deci
   const quoteRequest = useRef<AbortController | null>(null);
   useEffect(() => {
     const abort = new AbortController();
-    rilo<MarketResponse>(`market?mint=${mint}`, undefined, abort.signal).then(data => { setMarkets(data.markets); setMarket(data.markets[0] ?? null); if (!data.markets.length) setMarketError("No indexed DEX pool was returned for this token."); }).catch(e => { if (!abort.signal.aborted) setMarketError(e.message); });
+    let timer: number | undefined;
+    setMarkets([]); setMarket(null); setMarketError(""); setPool(null); setPoolError("");
+    async function loadMarket() {
+      try {
+        if (!document.hidden) {
+          const data = await rilo<MarketResponse>(`market?mint=${encodeURIComponent(mint)}`, undefined, abort.signal);
+          if (abort.signal.aborted) return;
+          setMarkets(data.markets);
+          setMarket(current => data.markets.find(item => item.pool === current?.pool) ?? data.markets[0] ?? null);
+          setMarketError(data.markets.length ? "" : "No indexed DEX pool was returned for this token.");
+        }
+      } catch (e) { if (!abort.signal.aborted) setMarketError(e instanceof Error ? e.message : "Market data unavailable."); }
+      finally { if (!abort.signal.aborted) timer = window.setTimeout(loadMarket, 60_000); }
+    }
+    void loadMarket();
     rilo<{ pool: PoolDetails | null }>(`pool?mint=${mint}`, undefined, abort.signal).then(data => setPool(data.pool)).catch(e => { if (!abort.signal.aborted) setPoolError(e.message); });
-    return () => { abort.abort(); quoteRequest.current?.abort(); };
+    return () => { abort.abort(); window.clearTimeout(timer); quoteRequest.current?.abort(); };
   }, [mint]);
   useEffect(() => { quoteRequest.current?.abort(); setQuote(null); setError(""); }, [mint, side, amount, slippage, wallet.address]);
   useEffect(() => { if (!quote) return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, [quote]);
@@ -50,8 +66,9 @@ export function MarketTerminal({ mint, decimals, onClose }: { mint: string; deci
   }
   const output = (raw: string) => quote?.outputDecimals === null ? `${raw} smallest units` : fromUnits(raw, quote?.outputDecimals ?? 9);
   const executable = Boolean(quote?.built || quote?.order?.transaction && quote.order.ticket);
-  return <section className="terminal"><div className="terminal-heading"><div><p className="eyebrow">MARKET TERMINAL</p><h2>{market?.symbol || `${mint.slice(0,6)}…${mint.slice(-4)}`}</h2></div><button className="quiet-button" onClick={onClose}>Explore tokens</button></div>
+  return <section className="terminal"><div className="terminal-heading"><div><p className="eyebrow">MARKET TERMINAL</p><div className="terminal-token-title"><TokenAvatar imageUrl={market?.imageUrl} symbol={market?.symbol || "?"} large /><h2>{market?.symbol || `${mint.slice(0,6)}…${mint.slice(-4)}`}</h2></div></div><button className="quiet-button" onClick={onClose}>Explore tokens</button></div>
     <div className="terminal-grid"><div className="panel chart-panel"><div className="market-metrics"><div><span>Price</span><strong>{usd(market?.price ?? null)}</strong></div><div><span>24h volume</span><strong className="white-volume">{usd(market?.volume24h ?? null, true)}</strong></div><div><span>Liquidity</span><strong>{usd(market?.liquidity ?? null, true)}</strong></div></div>{markets.length > 1 && <label className="pool-selector">Market<select value={market?.pool || ""} onChange={e => setMarket(markets.find(item => item.pool === e.target.value) ?? null)}>{markets.map(item => <option key={item.pool} value={item.pool}>{item.dex} · {item.pool.slice(0,6)}… · {usd(item.liquidity, true)}</option>)}</select></label>}
+      {market && marketError && <p className="form-note">{marketError} Showing the last successful market snapshot.</p>}
       {market ? <TokenChart pool={market.pool} side={market.tokenSide} /> : <p className="empty-note">{marketError || "Loading market history…"}</p>}<p className="data-caption address">Mint: {mint}</p></div>
       <aside className="panel trade-panel"><div className="segmented"><button disabled={busy} className={side === "buy" ? "selected" : ""} onClick={() => setSide("buy")}>Buy</button><button disabled={busy} className={side === "sell" ? "selected" : ""} onClick={() => setSide("sell")}>Sell</button></div><label>Amount in {side === "buy" ? "SOL" : market?.symbol || "tokens"}<input inputMode="decimal" placeholder="0.00" value={amount} disabled={busy} onChange={e => setAmount(e.target.value)} /></label><label>Maximum slippage<select value={slippage} disabled={busy} onChange={e => setSlippage(e.target.value)}><option value="50">0.5%</option><option value="100">1%</option><option value="200">2%</option><option value="500">5%</option></select></label>
         <button className="quiet-button" disabled={busy || !amount} onClick={() => void getQuote()}>{busy ? "Working…" : "Get live quote"}</button>
@@ -59,6 +76,7 @@ export function MarketTerminal({ mint, decimals, onClose }: { mint: string; deci
         {error && <p className="form-error" role="alert">{error}</p>}{message && <p className="form-note" role="status">{message}</p>}{signature && <p className="subtle address">Transaction: {signature}</p>}<p className="subtle">Curve trades use Meteora. DEX trades use Jupiter. A quote does not guarantee execution.</p>
       </aside></div>
     <div className="panel creator-history"><div className="panel-heading"><h3>Creator & launch history</h3><span className="badge">ON-CHAIN RECORDS</span></div>{pool ? <><p className="address subtle">Verified Meteora pool creator: {pool.creator}</p><p className="subtle">{pool.graduated ? "Graduated to a DEX" : `${(pool.progress * 100).toFixed(1)}% of the curve’s graduation reserve`} · Creator fee share: {pool.creatorFeePercent}% of distributable trading fees.</p><p className="subtle">{pool.historyAvailable ? `${pool.history.length} returned Meteora launches by this creator.` : "Creator history is temporarily unavailable."} These records do not establish intent or rug history.</p><div className="creator-launch-list">{pool.history.slice(0,8).map(item => <span className="mono" key={item.pool}>{item.mint.slice(0,6)}…{item.mint.slice(-4)} · {item.graduated ? "Graduated" : "On curve"}</span>)}</div></> : <p className="subtle">{poolError || "No verified Meteora creator record was returned. History on other launch programs remains outside this integration’s coverage."}</p>}</div>
+    {market && <LiquidityStatus key={`${mint}:${market.pool}`} mint={mint} pool={market.pool} />}
     <WalletIntelligence key={mint} mint={mint} />
   </section>;
 }

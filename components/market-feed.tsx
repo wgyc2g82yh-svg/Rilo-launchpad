@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { TokenAvatar } from "@/components/token-avatar";
 import { rilo } from "@/lib/rilo-client";
 import type { MarketResponse } from "@/lib/integration-types";
 export const usd = (value: number | null, compact = false) => value === null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: compact ? "compact" : "standard", maximumFractionDigits: value > 1 ? 2 : 8 }).format(value);
@@ -13,7 +14,7 @@ export function MarketFeed({ onSelect, initialMode = "trending" }: { onSelect(mi
   return <section className="panel market-feed"><div className="panel-heading"><div><p className="eyebrow">DISCOVER THE MARKET</p><h2>{mode === "new" ? "New launches" : "Trending tokens"}</h2></div><div className="segmented"><button className={mode === "trending" ? "selected" : ""} onClick={() => setMode("trending")}>Trending</button><button className={mode === "new" ? "selected" : ""} onClick={() => setMode("new")}>New pools</button></div></div>
     <p className="subtle">Indexed Solana mainnet pools from GeckoTerminal. Rankings are market activity, not a safety rating. Coverage is provider-dependent.</p>
     {error && <p className="form-error" role="alert">{error}</p>}{loading && <p className="subtle" role="status">Loading market data…</p>}
-    <div className="market-table-wrap">{data && <table className="market-table"><thead><tr><th>Token</th><th>Price</th><th>24h volume</th><th>Liquidity</th><th>24h</th></tr></thead><tbody>{data.markets.map(market => <tr key={market.pool}><td><button className="token-select" onClick={() => onSelect(market.mint)}><span className="token-avatar">{market.symbol.slice(0,2)}</span><span><strong>{market.symbol}</strong><small>{market.name}</small></span></button></td><td>{usd(market.price)}</td><td className="white-volume">{usd(market.volume24h, true)}</td><td>{usd(market.liquidity, true)}</td><td>{market.change24h === null ? "—" : `${market.change24h > 0 ? "+" : ""}${market.change24h.toFixed(2)}%`}</td></tr>)}</tbody></table>}</div>
+    <div className="market-table-wrap">{data && <table className="market-table"><thead><tr><th>Token</th><th>Price</th><th>24h volume</th><th>Liquidity</th><th>24h</th></tr></thead><tbody>{data.markets.map(market => <tr key={market.pool}><td><button className="token-select" onClick={() => onSelect(market.mint)}><TokenAvatar imageUrl={market.imageUrl} symbol={market.symbol} /><span><strong>{market.symbol}</strong><small>{market.name}</small></span></button></td><td>{usd(market.price)}</td><td className="white-volume">{usd(market.volume24h, true)}</td><td>{usd(market.liquidity, true)}</td><td>{market.change24h === null ? "—" : `${market.change24h > 0 ? "+" : ""}${market.change24h.toFixed(2)}%`}</td></tr>)}</tbody></table>}</div>
     {data && <p className="data-caption">{data.source} · Observed {new Date(data.observedAt).toLocaleTimeString()} · Updates about every 95 seconds</p>}
     {data && !data.markets.length && <p className="empty-note">No indexed pools were returned.</p>}
   </section>;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { OriginalBackground, OriginalBrand, OriginalHero, OriginalIcon } from "@/components/original-brand";
 import { Mark, Star, XIcon } from "@/components/icons";
 import { WalletButton } from "@/components/wallet-button";
 import { LaunchForm } from "@/components/launch-form";
@@ -10,6 +11,8 @@ import { MarketTerminal } from "@/components/market-terminal";
 import { formatSupply, isSolanaAddress } from "@/lib/token-analysis";
 import type { Scan } from "@/lib/token-analysis";
 
+const NAV = [{name:"Discover",icon:"compass"},{name:"Launch",icon:"launch"},{name:"Trending",icon:"trending"},{name:"Signals",icon:"pulse"},{name:"Watchlist",icon:"star"},{name:"Activity",icon:"activity"},{name:"Guide",icon:"book"}] as const;
+type View = "discover" | "launch" | "trending" | "signals" | "activity" | "guide";
 type SavedMint = { mint: string };
 type Status = { configured: boolean; connected: boolean; genesisHash?: string };
 const WATCH_KEY = "rilo-watchlist-v1";
@@ -17,7 +20,7 @@ const shorten = (address: string) => `${address.slice(0, 6)}…${address.slice(-
 
 export function RiloApp() { return <WalletProvider><RiloDashboard /></WalletProvider>; }
 function RiloDashboard() {
-  const [tab, setTab] = useState<"discover" | "launch">("discover");
+  const [tab, setTab] = useState<View>("discover");
   const [mint, setMint] = useState("");
   const [selectedMint, setSelectedMint] = useState("");
   const [scan, setScan] = useState<Scan | null>(null);
@@ -28,6 +31,9 @@ function RiloDashboard() {
   const [storageNotice, setStorageNotice] = useState("");
   const [copied, setCopied] = useState(false);
   const [watchOpen, setWatchOpen] = useState(false);
+  const [activity, setActivity] = useState<{mint:string;time:string}[]>([]);
+  const marketSection = useRef<HTMLDivElement>(null);
+  const technologySection = useRef<HTMLDivElement>(null);
   const controller = useRef<AbortController | null>(null);
   const watchDialog = useRef<HTMLDialogElement>(null);
 
@@ -58,7 +64,7 @@ function RiloDashboard() {
       const response = await fetch(`/api/solana/scan?mint=${encodeURIComponent(value)}`, { signal: abort.signal });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Scan could not complete.");
-      if (!abort.signal.aborted) { setScan(data); setStatus(current => ({ ...current, configured: true, connected: true })); }
+      if (!abort.signal.aborted) { setScan(data); setActivity(items=>[{mint:value,time:data.checkedAt},...items].slice(0,20)); setStatus(current => ({ ...current, configured: true, connected: true })); }
     } catch (failure) {
       if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : "Scan could not complete. Try again.");
     } finally { if (!abort.signal.aborted) setBusy(false); }
@@ -69,16 +75,26 @@ function RiloDashboard() {
     catch { setError("Could not copy the address. Select the address to copy it manually."); }
   }
 
-  return <main className="rilo-app">
-    <div className="app-ambient" aria-hidden="true"><div className="metal-field"><div className="metal-wave metal-wave-one" /><div className="metal-wave metal-wave-two" /></div></div>
-    <header className="app-header"><a href="/" className="brand-mark" aria-label="RILO home"><Mark /></a>
-      <nav aria-label="Main navigation"><button className={tab === "discover" ? "nav-tab active" : "nav-tab"} aria-current={tab === "discover" ? "page" : undefined} onClick={() => setTab("discover")}>Discover</button><button className={tab === "launch" ? "nav-tab active" : "nav-tab"} aria-current={tab === "launch" ? "page" : undefined} onClick={() => setTab("launch")}>Launch</button></nav>
-      <div className="header-actions"><a className="social-link" href="https://x.com/RiloProtocol" target="_blank" rel="noopener noreferrer" aria-label="RiloProtocol on X"><XIcon /></a><button className="icon-button" aria-label={`Watchlist, ${watch.length} tokens`} onClick={() => setWatchOpen(true)}><Star /></button><WalletButton /></div>
-    </header>
-    <div className="app-body">
-      <div className="app-title-row"><p className="eyebrow">SOLANA LAUNCH INTELLIGENCE</p><span className={`connection-status ${status?.connected ? "connected" : ""}`}><i />{status === null ? "Checking connection" : status.connected ? "RPC connected" : status.configured ? "RPC unavailable" : "RPC setup required"}</span></div>
-      {tab === "discover" ? <>
-        <section className="app-intro"><div><h1>Read the launch.<br /><span>Before the move.</span></h1><p>Look beneath the ticker. Check token authorities and supply distribution directly from the chain.</p></div><div className="intro-index" aria-hidden="true"><span>R / 01</span><span>OBSERVE. VERIFY.</span></div></section>
+  function navigate(name: string) {
+    if (name === "Watchlist") { setWatchOpen(true); return; }
+    setTab(name.toLowerCase() as View); setSelectedMint(""); setScan(null); setError("");
+    window.scrollTo({top:0,behavior:"instant"});
+  }
+  const navigation = (mobile: boolean) => <nav className={mobile ? "rt-mobile-nav" : "rt-desktop-nav"} aria-label={mobile ? "Mobile" : "Main navigation"}>{NAV.map(item=><button key={item.name} className={tab===item.name.toLowerCase() ? "rt-active" : ""} aria-current={tab===item.name.toLowerCase() ? "page" : undefined} onClick={()=>navigate(item.name)}>{mobile && <OriginalIcon name={item.icon} size={21}/>}<span>{item.name}</span></button>)}</nav>;
+  return <main id="rt" className="rilo-app">
+    <OriginalBackground />
+    <header className="rt-header"><div className="rt-header-inner">
+      <button className="rt-home" onClick={()=>navigate("Discover")} aria-label="RILO home"><OriginalBrand/></button>
+      {navigation(false)}
+      <div className="rt-header-actions"><a className="rt-social" href="https://x.com/RiloProtocol" target="_blank" rel="noopener noreferrer" aria-label="RiloProtocol on X"><XIcon/></a><span className="rt-chain"><span>◎</span> SOLANA</span><WalletButton/></div>
+    </div></header>
+    <div className="rt-container">
+
+      {tab === "discover" || tab === "trending" || tab === "signals" ? <>
+        {tab === "discover" && !selectedMint && <OriginalHero onExplore={()=>marketSection.current?.scrollIntoView({behavior:"smooth",block:"start"})} onTechnology={()=>navigate("Signals")}/>}
+        {tab === "signals" && <section className="app-intro"><div><p className="eyebrow">THE SIGNAL ENGINE</p><h1>Look beneath<br/><span>the launch.</span></h1><p>Inspect token controls, supply concentration, and public wallet evidence. Missing coverage stays visible.</p></div></section>}
+        <div className="rilo-live-content" ref={technologySection}>
+        <div className="app-title-row"><p className="eyebrow">{tab === "trending" ? "TRENDING / SOLANA" : "ON-CHAIN INTELLIGENCE"}</p><span className={`connection-status ${status?.connected ? "connected" : ""}`}><i />{status === null ? "Checking connection" : status.connected ? "RPC connected" : status.configured ? "RPC unavailable" : "RPC setup required"}</span></div>
         <form className="scan-form" onSubmit={event => { event.preventDefault(); void check(mint); }}><label htmlFor="mint-address" className="sr-only">Solana token mint address</label><span className="scan-symbol" aria-hidden="true">⌕</span><input id="mint-address" value={mint} onChange={event => setMint(event.target.value)} placeholder="Paste a Solana token mint address" autoComplete="off" spellCheck={false} maxLength={44} required /><button className="metal-button" disabled={busy}>{busy ? "Scanning…" : "Analyze token"}</button></form>
         <p className="scan-help">Read-only checks · No wallet required · Uses your configured Solana network</p>
         {error && <p className="form-error" role="alert">{error}</p>}
@@ -92,11 +108,13 @@ function RiloDashboard() {
           <div className="analysis-grid"><div className="panel checks-panel"><div className="panel-heading"><h3>Launch intelligence</h3><span className="badge">PARTIAL COVERAGE</span></div><div className="check-list">{scan.checks.map(check => <article className={`check-row ${check.state}`} key={check.title}><span className="check-indicator" aria-hidden="true">{check.state === "attention" ? "!" : check.state === "observed" ? "·" : "—"}</span><div><h4>{check.title}</h4><p>{check.detail}</p></div><span className="check-state">{check.state === "attention" ? "Review" : check.state === "observed" ? "Observed" : "Not checked"}</span></article>)}</div></div>
             <aside className="panel holders-panel"><div className="panel-heading"><h3>Supply distribution</h3></div><p className="subtle">Largest token accounts, not verified wallet owners. Pool and exchange accounts are included.</p>{scan.accounts.length ? <ol className="holder-list">{scan.accounts.map((account, index) => <li key={account.address}><div><span className="rank">{String(index + 1).padStart(2, "0")}</span><span className="mono">{shorten(account.address)}</span><strong>{account.share === null ? "—" : `${account.share.toFixed(2)}%`}</strong></div><span className="holder-bar"><i style={{ width: `${Math.min(account.share ?? 0, 100)}%` }} /></span></li>)}</ol> : <p className="empty-note">No largest-account data is available.</p>}<p className="subtle">Authority and account readings are separate RPC snapshots. Balances may change between them.</p></aside>
           </div>
-        </section> : !busy && !selectedMint && <div className="discovery-grid"><section className="panel intelligence-panel"><div className="panel-heading"><div><p className="eyebrow">SIGNAL ENGINE</p><h2>Every signal needs evidence.</h2></div><span className="badge">READ ONLY</span></div><div className="engine-art" aria-hidden="true"><div className="engine-orbit orbit-one" /><div className="engine-orbit orbit-two" /><div className="engine-core"><Mark /></div><span className="engine-label label-one">AUTHORITY</span><span className="engine-label label-two">DISTRIBUTION</span><span className="engine-label label-three">ON-CHAIN DATA</span></div><p className="engine-caption">Paste a mint address to inspect the token. Unchecked signals stay visible, so missing data never becomes a clean-launch badge.</p></section><aside className="capabilities"><div className="panel capability-card"><span className="feature-number">01 / OBSERVE</span><h3>Token controls</h3><p>See whether supply can be increased or token accounts can be frozen.</p><span className="feature-state">Available with RPC</span></div><div className="panel capability-card"><span className="feature-number">02 / INSPECT</span><h3>Supply distribution</h3><p>Understand how much supply sits in the largest token accounts.</p><span className="feature-state">Available with RPC</span></div><div className="panel capability-card"><span className="feature-number">03 / CONNECT</span><h3>Wallet relationships</h3><p>Bundle analysis and developer history require launch indexing.</p><span className="feature-state pending">Integration pending</span></div></aside></div>}
-        {!selectedMint && <MarketFeed onSelect={value => void check(value)} />}
-      </> : <><section className="app-intro compact"><div><h1>Your next launch.<br /><span>In full view.</span></h1><p>Create and save your token profile, then review it before deployment.</p></div></section><LaunchForm /></>}
+        </section> : tab === "signals" && !busy && !selectedMint && <div className="discovery-grid"><section className="panel intelligence-panel"><div className="panel-heading"><div><p className="eyebrow">SIGNAL ENGINE</p><h2>Every signal needs evidence.</h2></div><span className="badge">READ ONLY</span></div><div className="engine-art" aria-hidden="true"><div className="engine-orbit orbit-one" /><div className="engine-orbit orbit-two" /><div className="engine-core"><Mark /></div><span className="engine-label label-one">AUTHORITY</span><span className="engine-label label-two">DISTRIBUTION</span><span className="engine-label label-three">ON-CHAIN DATA</span></div><p className="engine-caption">Paste a mint address to inspect the token. Unchecked signals stay visible, so missing data never becomes a clean-launch badge.</p></section><aside className="capabilities"><div className="panel capability-card"><span className="feature-number">01 / OBSERVE</span><h3>Token controls</h3><p>See whether supply can be increased or token accounts can be frozen.</p><span className="feature-state">Available with RPC</span></div><div className="panel capability-card"><span className="feature-number">02 / INSPECT</span><h3>Supply distribution</h3><p>Understand how much supply sits in the largest token accounts.</p><span className="feature-state">Available with RPC</span></div><div className="panel capability-card"><span className="feature-number">03 / CONNECT</span><h3>Wallet relationships</h3><p>Bundle analysis and developer history require launch indexing.</p><span className="feature-state pending">Integration pending</span></div></aside></div>}
+        {!selectedMint && tab !== "signals" && <div ref={marketSection} id="rt-launches"><MarketFeed key={tab} initialMode={tab === "trending" ? "trending" : "new"} onSelect={value => void check(value)} /></div>}
+        </div>
+      </> : tab === "activity" ? <section className="rilo-live-content activity-view"><p className="eyebrow">SIGNAL ACTIVITY</p><h1>Your latest intelligence.</h1><p className="subtle">Completed token checks from this session. Market browsing is not a safety verdict.</p>{activity.length ? activity.map((item,i)=><button className="panel activity-item" key={item.mint+item.time+i} onClick={()=>void check(item.mint)}><span className="mono">{shorten(item.mint)}</span><span>{new Date(item.time).toLocaleTimeString()}</span></button>) : <div className="panel empty-note">No completed token checks yet.</div>}</section> : tab === "guide" ? <section className="rilo-live-content guide-view"><p className="eyebrow">READING YOUR SIGNALS</p><h1>More context. Clearer decisions.</h1><div className="guide-grid">{[["Token controls","RPC readings show mint and freeze authorities. These are observations, not a safety guarantee."],["Wallet relationships","Shared public funding can come from exchanges or services. It does not prove bundling."],["Creator history","Verified returned Meteora creator records cover that provider, not every launch program."],["Engine preview","The animated hero is labeled simulation. Its example tokens and findings are separate from live markets."]].map(([title,body])=><article className="panel" key={title}><h2>{title}</h2><p className="subtle">{body}</p></article>)}</div></section> : <div className="rilo-live-content"><section className="app-intro compact"><div><h1>Your next launch.<br /><span>In full view.</span></h1><p>Create and save your token profile, then review it before deployment.</p></div></section><LaunchForm /></div>}
       <footer className="app-footer"><span className="powered-by">POWERED BY RILO</span><span>On-chain observations. Transparent coverage.</span><a href="https://x.com/RiloProtocol" target="_blank" rel="noopener noreferrer">@RiloProtocol</a></footer>
     </div>
+    {navigation(true)}
     <dialog ref={watchDialog} className="rilo-dialog" onCancel={() => setWatchOpen(false)} onClick={event => { if (event.target === event.currentTarget) setWatchOpen(false); }} aria-labelledby="watchlist-title"><button className="dialog-close" aria-label="Close watchlist" onClick={() => setWatchOpen(false)}>×</button><p className="eyebrow">YOUR TOKENS</p><h2 id="watchlist-title">Watchlist</h2><p className="subtle">Saved on this device. Select a token to run a fresh check.</p>{watch.length ? <ul className="watch-list">{watch.map(item => <li key={item.mint}><button className="quiet-button mono" onClick={() => void check(item.mint)}>{shorten(item.mint)}</button><button className="icon-button" aria-label={`Remove ${shorten(item.mint)} from watchlist`} onClick={() => toggleWatch(item.mint)}><Star filled /></button></li>)}</ul> : <p className="empty-note">Analyze a token and tap its star to save it here.</p>}</dialog>
   </main>;
 }

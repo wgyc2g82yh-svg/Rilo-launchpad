@@ -7,7 +7,6 @@
 #rt .rt-header .wallet-button { display: inline-flex; align-items: center; min-height: 39px; padding: 0 17px; border: 1px solid #d8d8d840; border-radius: 7px; color: #ddd !important; background: linear-gradient(145deg,#292929,#111); box-shadow: inset 0 1px #ffffff12; font-size: 12px !important; white-space: nowrap; }
 #rt .rt-header .rilo-dialog button { min-height: 38px; padding: 9px 15px; border-radius: 5px; }
 #rt .rt-social svg { width: 17px; height: 17px; }
-#rt .rt-engine-v2 { align-self: center; }
 #rt .rt-hero .rt-engine-check p { max-width: none; }
 #rt .rilo-live-content .market-terminal { margin-top: 22px; }
 #rt .activity-view, #rt .guide-view { min-height: 60svh; padding-top: 48px; }
@@ -31,3 +30,4 @@
   #rt .activity-item { font-size: 11px; }
   #rt .app-footer { flex-wrap: wrap; padding-bottom: 28px; }
 }
+

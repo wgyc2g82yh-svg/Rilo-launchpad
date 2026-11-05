@@ -78,7 +78,7 @@ function SignalRows({ report, busy }: { report: SecurityReport | null; busy: boo
 }
 
 export function SecurityEngine({ mint, pool }: { mint: string; pool?: string }) {
-  const [monitor, setMonitor] = useState(false), [report, setReport] = useState<SecurityReport | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(true), [revision, setRevision] = useState(0), [alerts, setAlerts] = useState<string[]>([]);
+  const [monitor, setMonitor] = useState(true), [report, setReport] = useState<SecurityReport | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(true), [revision, setRevision] = useState(0), [alerts, setAlerts] = useState<string[]>([]);
   const baseline = useRef<{ key: string; report: SecurityReport | null }>({ key: '', report: null });
   useEffect(() => {
     const key = `${mint}:${pool ?? ''}`;
@@ -107,11 +107,15 @@ export function SecurityEngine({ mint, pool }: { mint: string; pool?: string }) 
     return () => { abort.abort(); clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility); };
   }, [mint, pool, monitor, revision]);
   return <section className="panel security-engine coin-signal-card" aria-label="Token signal engine" aria-busy={busy}>
-    <div className="signal-card-top"><p className="eyebrow">SIGNAL ENGINE</p><span className="signal-source">● READ ONLY</span></div>
+    <div className="signal-card-top"><p className="eyebrow">SIGNAL ENGINE</p><span className="signal-source">{busy ? '● CHECKING' : error ? 'CHECK FAILED' : monitor ? '● AUTO-CHECK ON' : 'PAUSED'}</span></div>
     <div className="signal-card-heading"><div><h3>{report?.verdict === 'attention' ? 'Risk signals observed' : busy && !report ? 'Reading the token' : report ? 'Partial analysis' : 'Analysis unavailable'}</h3><p>{report ? `Updated ${new Date(report.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · slot ${report.slot.toLocaleString()}` : 'On-chain controls · public wallet evidence'}</p></div><button className="quiet-button" disabled={busy} onClick={() => setRevision(value => value + 1)}>{busy ? 'Reading…' : 'Refresh'}</button></div>
     {error && <p className="form-error" role="alert">{error}{report ? ' Showing an older snapshot; it may be stale.' : ''}</p>}
     <WalletGraph report={report} busy={busy} />
     <LiveFindings key={mint + ':' + (pool ?? '')} report={report} busy={busy}/>
+    <details className="security-evidence"><summary>Top 10 holders</summary>
+      <p className="subtle">Owners ranked by their combined balances in the 20 largest token accounts. Pools and exchanges may appear.</p>
+      {report?.topHolders?.length ? <ol>{report.topHolders.map(holder => <li key={holder.wallet}><a href={'https://solscan.io/account/' + holder.wallet} target="_blank" rel="noopener noreferrer">{short(holder.wallet)}</a> · <strong>{holder.share == null ? 'Share unavailable' : holder.share.toFixed(2) + '%'}</strong></li>)}</ol> : <p className="subtle">{busy ? 'Checking holder balances…' : 'Holder balances unavailable.'}</p>}
+    </details>
     <details className="security-evidence"><summary>All security checks</summary><SignalRows report={report} busy={busy}/></details>
     <p className="signal-coverage">Sampled evidence · Unknown does not mean safe. Shared funding does not prove a bundle.</p>
     <details className="signal-monitor"><summary>Monitoring & alerts{alerts.length ? ` (${alerts.length})` : ''}</summary><label><input type="checkbox" checked={monitor} onChange={e => setMonitor(e.target.checked)} /> Refresh every 60 seconds while visible</label><p className="subtle">Pauses in hidden tabs. Changes between checks may be missed.</p>{alerts.length > 0 && <div role="status" aria-live="polite">{alerts.map((alert, i) => <p className="form-note" key={`${i}:${alert}`}>{alert}</p>)}</div>}</details>

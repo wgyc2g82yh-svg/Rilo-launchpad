@@ -10,7 +10,7 @@ export async function analyzeWallets(mint: string): Promise<WalletEvidence> {
   address(mint);
   return cached(`wallets:${mint}`, 60_000, async () => {
     const largest = await rpc<{ value: LargestAccount[] }>('getTokenLargestAccounts', [mint, { commitment: 'confirmed' }]);
-    const accounts = largest.value.slice(0, 12);
+    const accounts = largest.value.slice(0, 20);
     if (!accounts.length) return { sampledWallets: 0, transactionsRead: 0, incomplete: true, owners: [], sharedFunding: [], accumulation: [] };
     const accountData = await rpc<{ value: ({ data?: { parsed?: { type: string; info: { owner: string; mint: string; tokenAmount?: { amount: string } } } } } | null)[] }>('getMultipleAccounts', [accounts.map(item => item.address), { encoding: 'jsonParsed', commitment: 'confirmed' }]);
     const owners = new Map<string, { accounts: number; amountRaw: bigint; complete: boolean }>();

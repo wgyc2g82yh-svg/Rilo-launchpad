@@ -4,7 +4,7 @@ import type { WalletEvidence, PoolDetails } from './integration-types';
 import type { LiquidityEvidence } from './liquidity-evidence';
 import type { ProviderRisk, DeveloperRiskHistory } from './provider-risk';
 export type SecurityCheck = { id: string; title: string; state: 'attention' | 'observed' | 'unknown'; detail: string; evidenceKey?: string };
-export type SecurityReport = { mint: string; checkedAt: string; slot: number; coverage: 'partial'; verdict: 'attention' | 'incomplete'; linkedSupplyPercent: number | null; checks: SecurityCheck[]; creator: PoolDetails | null; liquidity: LiquidityEvidence | null; wallets: WalletEvidence | null; provider: ProviderRisk | null; history: DeveloperRiskHistory | null };
+export type SecurityReport = { topHolders: { wallet: string; share: number | null }[]; mint: string; checkedAt: string; slot: number; coverage: 'partial'; verdict: 'attention' | 'incomplete'; linkedSupplyPercent: number | null; checks: SecurityCheck[]; creator: PoolDetails | null; liquidity: LiquidityEvidence | null; wallets: WalletEvidence | null; provider: ProviderRisk | null; history: DeveloperRiskHistory | null };
 export function securityReport(scan: Scan, wallets: WalletEvidence | null, creator: PoolDetails | null, liquidity: LiquidityEvidence | null, provider: ProviderRisk | null = null, history: DeveloperRiskHistory | null = null): SecurityReport {
   // Cross-token/creator evidence must never leak into the current assessment.
   if (provider?.mint !== scan.mint) provider = null;
@@ -30,7 +30,17 @@ export function securityReport(scan: Scan, wallets: WalletEvidence | null, creat
     { id: 'liquidity', title: 'Liquidity lock', state: !liquidity || liquidity.status === 'unknown' ? 'unknown' : liquidity.status === 'locked' ? 'observed' : 'attention', evidenceKey: liquidity ? `${liquidity.status}:${liquidity.lockedPercent ?? ''}` : undefined, detail: liquidity?.detail ?? 'No supported lock evidence available for the selected pool.' },
     { id: 'clean', title: 'Clean launch verification', state: 'unknown', detail: 'Not verified: full history, private bundles, transfer behavior, and liquidity control are not fully covered. No safety certification is issued.' },
   );
-  return { mint: scan.mint, slot: scan.slot, checkedAt: scan.checkedAt, coverage: 'partial', linkedSupplyPercent, verdict: checks.some(check => check.state === 'attention') ? 'attention' : 'incomplete', checks, creator, liquidity, wallets, provider, history };
+  const rankedOwners = (wallets?.owners ?? []).flatMap(owner => {
+    if (!owner.amountRaw || !/^\d+$/.test(owner.amountRaw)) return [];
+    const amount = BigInt(owner.amountRaw);
+    return amount > 0n ? [{ wallet: owner.wallet, amount }] : [];
+  });
+  const validTotal = rankedOwners.reduce((sum, owner) => sum + owner.amount, 0n) <= BigInt(scan.info.supply);
+  const topHolders = validTotal ? rankedOwners
+    .sort((a, b) => a.amount === b.amount ? a.wallet.localeCompare(b.wallet) : a.amount > b.amount ? -1 : 1)
+    .slice(0, 10)
+    .map(owner => ({ wallet: owner.wallet, share: percentage(owner.amount.toString(), scan.info.supply) })) : [];
+  return { topHolders, mint: scan.mint, slot: scan.slot, checkedAt: scan.checkedAt, coverage: 'partial', linkedSupplyPercent, verdict: checks.some(check => check.state === 'attention') ? 'attention' : 'incomplete', checks, creator, liquidity, wallets, provider, history };
 }
 export function newRiskAlerts(previous: SecurityReport, next: SecurityReport): SecurityCheck[] {
   if (previous.mint !== next.mint) return [];

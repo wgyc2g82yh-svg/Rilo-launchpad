@@ -699,3 +699,8 @@ body:has(#rt){background:#050505!important}
 
 #rt .rt-home-hero{grid-template-columns:minmax(0,1fr);min-height:65vh}
 #rt .rt-home-hero .rt-hero-copy{max-width:760px}
+
+#rt .rt-logo-shine{animation:rt-logo-glisten 5s ease-in-out infinite;transform:translateX(0) skewX(-18deg)}
+@keyframes rt-logo-glisten{0%,35%{transform:translateX(0) skewX(-18deg)}75%,100%{transform:translateX(550px) skewX(-18deg)}}
+#rt .engine-core .rt-mark{display:block;filter:drop-shadow(0 0 18px #ffffff25)}
+@media(prefers-reduced-motion:reduce){#rt .rt-logo-shine{animation:none;opacity:0}}

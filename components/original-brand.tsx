@@ -78,6 +78,8 @@ export function OriginalBrand({ size = 44 }: { size?: number }) {
   return <span className="rt-mark" style={{ "--mark": `${size}px` } as CSSProperties}>
     <svg viewBox="0 0 300 320" width={size} height={size} role="img" aria-label="Rilo R logo">
       <defs>
+        <clipPath id={`${id}-clip`}><path d={outline}/></clipPath>
+        <linearGradient id={`${id}-shine`}><stop stopColor="#fff" stopOpacity="0"/><stop offset=".5" stopColor="#fff" stopOpacity=".85"/><stop offset="1" stopColor="#fff" stopOpacity="0"/></linearGradient>
         <linearGradient id={`${id}-metal`} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#ffffff"/><stop offset=".13" stopColor="#a8a8a8"/>
           <stop offset=".3" stopColor="#6b6b6b"/><stop offset=".47" stopColor="#e9e9e9"/>
@@ -91,6 +93,7 @@ export function OriginalBrand({ size = 44 }: { size?: number }) {
       </defs>
       <path d={outline} fill={`url(#${id}-metal)`}/>
       <path d={outline} fill={`url(#${id}-light)`}/>
+      <g clipPath={`url(#${id}-clip)`}><rect className="rt-logo-shine" x="-150" y="-70" width="120" height="460" fill={`url(#${id}-shine)`}/></g>
       <path d="M3 4C45 31 77 34 139 34H176C215 34 246 55 246 91C246 65 221 64 176 64H111C63 64 28 43 3 4Z" fill="#fff" opacity=".25"/>
       <path d="M120 154L193 247C219 281 248 303 293 313C246 313 208 290 181 251Z" fill="#fff" opacity=".42"/>
       <path d="M5 4H194C254 4 294 42 294 100M120 154L193 247C219 281 248 303 291 312" fill="none" stroke="#fff" strokeOpacity=".6" strokeWidth="1.4"/>

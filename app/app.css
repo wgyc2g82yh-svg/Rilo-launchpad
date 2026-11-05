@@ -229,3 +229,10 @@
   .launch-sidebar { display: block; }
   .rilo-dialog { padding: 30px 23px; }
 }
+
+/* Keep mint-field focus within the shared search surface. */
+#rt .scan-form{transition:border-color .15s,box-shadow .15s}
+#rt .scan-form:focus-within{border-color:#b6b6c0;box-shadow:0 0 0 1px #b6b6c033,inset 0 1px #ffffff09}
+#rt .scan-form input{appearance:none;-webkit-appearance:none;border-radius:0;outline:none;box-shadow:none;line-height:1.5;caret-color:#eeeeef}
+#rt .scan-form input:focus,#rt .scan-form input:focus-visible{outline:none;box-shadow:none}
+@media(max-width:600px){#rt .scan-form{padding:12px;gap:8px}#rt .scan-symbol{flex:0 0 20px}#rt .scan-form input{width:0;flex:1 1 0;min-width:0;min-height:44px;padding:8px 0;font-size:16px}#rt .scan-form input::placeholder{font-size:12px}#rt .scan-form .metal-button{flex:0 0 100%;margin-top:2px}}

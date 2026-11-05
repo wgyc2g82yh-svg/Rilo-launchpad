@@ -12,16 +12,39 @@ function SignalIcon({ kind }: { kind: string }) {
 function WalletGraph({ report, busy }: { report: SecurityReport | null; busy: boolean }) {
   const groups = report?.wallets?.sharedFunding ?? [];
   const shown = groups.slice(0, 3);
-  const addresses = [...new Set(shown.flatMap(group => [group.source, ...group.wallets]))].slice(0, 15);
-  const points = addresses.map((address, i) => ({ address, x: 260 + Math.cos(i * Math.PI * 2 / addresses.length - Math.PI / 2) * 190, y: 130 + Math.sin(i * Math.PI * 2 / addresses.length - Math.PI / 2) * 90 }));
-  const point = (address: string) => points.find(item => item.address === address);
-  return <figure className="coin-wallet-graph">
-    {points.length ? <svg viewBox="0 0 520 260" role="img" aria-label="Observed shared SOL funding relationships. These do not prove common ownership or bundling.">
-      <circle className="graph-orbit" cx="260" cy="130" r="95" />
-      {shown.flatMap(group => group.wallets.map(wallet => { const from = point(group.source), to = point(wallet); return from && to ? <path className="graph-edge" key={`${group.source}:${wallet}`} d={`M ${from.x} ${from.y} Q 260 130 ${to.x} ${to.y}`}><title>{group.source} sent SOL to {wallet}</title></path> : null; }))}
-      {points.map(item => <g key={item.address}><title>{item.address}</title><circle className="graph-halo" cx={item.x} cy={item.y} r="12" /><circle className={shown.some(group => group.source === item.address) ? 'graph-sender' : 'graph-wallet'} cx={item.x} cy={item.y} r={shown.some(group => group.source === item.address) ? 6 : 4} /><text x={item.x} y={item.y + 25} textAnchor="middle">{short(item.address)}</text></g>)}
-    </svg> : <div className={`graph-empty${busy ? ' is-reading' : ''}`}><svg viewBox="0 0 520 260" aria-hidden="true"><circle cx="260" cy="130" r="88" /><circle cx="260" cy="130" r="60" /><path d="M80 130h360M260 25v210" /></svg><div><span>{busy ? 'Reading wallet evidence' : report?.wallets?.transactionsRead ? 'No shared funding observed' : 'Wallet evidence unavailable'}</span><small>{busy ? 'Relationships appear only when observed.' : 'Recent sample · connections may be missing'}</small></div></div>}
-    <figcaption>{points.length ? `Shared SOL senders · ${shown.length} of ${groups.length} groups shown · up to 15 addresses` : 'PUBLIC FUNDING EVIDENCE'}{points.length > 0 && <span> Shared sender ≠ verified bundle</span>}</figcaption>
+  const sources = shown.map(group => group.source);
+  const wallets = [...new Set([...shown.flatMap(group => group.wallets), ...(report?.wallets?.owners ?? []).map(owner => owner.wallet)])].filter(wallet => !sources.includes(wallet)).slice(0, 15 - sources.length);
+  const hubs = sources.map((address, i) => ({ address, x: i === 0 ? 220 : 90, y: i === 0 ? 121 : i === 1 ? 87 : 170, hub: true }));
+  const nodes = wallets.map((address, i) => {
+    const angle = (i + 0.35) * 2 * Math.PI / wallets.length;
+    return { address, x: 220 + 181 * Math.cos(angle), y: 121 + 93 * Math.sin(angle), hub: false };
+  });
+  const points = [...hubs, ...nodes];
+  return <figure className="rt-engine-visual" style={{margin:0}}>
+    <svg className="rt-network rt-network2" viewBox="0 0 440 248" fill="none" role="img" aria-label="Sampled wallets and observed shared SOL funding paths">
+      <path d="M0 62H440M0 124H440M0 186H440M73 0V248M147 0V248M220 0V248M293 0V248M367 0V248" stroke="currentColor" opacity=".08"/>
+      {[78,105].map(radius => <circle key={radius} cx="220" cy="121" r={radius} stroke="currentColor" opacity=".09"/>)}
+      {shown.map((group, i) => group.wallets.map((address, j) => {
+        const to = points.find(item => item.address === address);
+        if (!to) return null;
+        const from = hubs[i];
+        const path = `M${from.x} ${from.y}Q${(from.x+to.x)/2+14} ${(from.y+to.y)/2-19} ${to.x} ${to.y}`;
+        return <g key={group.source + address}><title>{group.source} sent SOL to {address}</title>
+          <path d={path} stroke="currentColor" opacity=".35"/>
+          <path className="rt-packet" d={path} pathLength="100" stroke="currentColor" strokeWidth="2" strokeDasharray="3 97" style={{animationDelay:j * -.27 + 's'}}/>
+        </g>;
+      }))}
+      {points.map(({address,x,y,hub}, i) => <g key={address}><title>{address}</title>
+        <circle className={hub ? 'rt-hub-ring' : 'rt-wallet-halo'} cx={x} cy={y} r={hub ? 24 : 10} stroke="currentColor" strokeOpacity=".35" strokeDasharray={hub ? '9 12 3 16' : undefined} style={{animationDelay:i * -.31 + 's'}}/>
+        {hub && <circle cx={x} cy={y} r="16" fill="#121212" stroke="currentColor" strokeOpacity=".5"/>}
+        <circle cx={x} cy={y} r={hub ? 5 : 3.5} fill="currentColor"/>
+        <text x={x} y={y + (hub ? 34 : 16)} textAnchor="middle" fill="currentColor" opacity=".65" fontFamily="monospace" fontSize="7">{short(address)}</text>
+      </g>)}
+      <path className="rt-net-sweep" d="M5 0H435" stroke="currentColor" opacity=".24"/>
+      <text x="14" y="17" fill="currentColor" fontSize="7" fontFamily="monospace" letterSpacing="1">FUNDING CLUSTER</text>
+      {!points.length && <text x="220" y="125" textAnchor="middle" fill="currentColor" fontSize="11">{busy ? 'Reading wallet evidence…' : 'Wallet evidence unavailable'}</text>}
+    </svg>
+    <figcaption className="rt-engine-legend"><span><i/> FUNDING PATH</span><span><i/> WALLET</span><span>{shown.length ? 'SHARED SOL SENDERS' : 'SAMPLED WALLETS'}</span></figcaption>
   </figure>;
 }
 const primaryChecks = [

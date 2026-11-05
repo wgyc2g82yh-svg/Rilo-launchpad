@@ -10,7 +10,7 @@ Next.js 15 app with the metallic landing page at `/` and the launchpad at `/app`
 | Market terminal | Five-minute OHLCV candles and white volume bars using Lightweight Charts; selectable indexed pool |
 | DEX trading | Jupiter Swap V2 order → Phantom signature → managed execution; wallet-bound transaction tickets and confirmation reporting |
 | Bonding-curve trading | Direct Meteora DBC quote, slippage minimum, simulation, Phantom signature, RPC submission and confirmation for active original-SPL/SOL curves |
-| Token launch | Creator-signed profile authorization, immutable content-addressed metadata upload to Supabase, Meteora DBC pool/mint preparation, simulation, new mint partial signature and creator wallet approval |
+| Token launch | 0.5 SOL native on-chain creation fee plus rent/network costs; creator-signed profile authorization, immutable content-addressed metadata upload to Supabase, Meteora DBC pool/mint preparation, simulation, new mint partial signature and creator wallet approval |
 | Launch configuration | Treasury-only builder with operator-entered supply, starting/graduation market caps in SOL and trading fee; fixed supply, immutable metadata, no creator vesting, no first buy, no base transfer tax |
 | Creator rebate | 1% of distributable platform curve trading fees after protocol fees, enforced by the configured DBC account; creator claims accrued curve fees with their own wallet |
 | Liquidity at graduation | DAMM v2 migration via Meteora's migration infrastructure; 100% of graduated LP positions permanently locked, 99% platform / 1% creator fee rights |
@@ -64,6 +64,8 @@ All wallet actions are built for explicit visitor approval in Phantom. No wallet
 | `JUPITER_API_KEY` | Production API key; optional for limited keyless prototyping |
 | `JUPITER_REFERRAL_ACCOUNT` / `JUPITER_REFERRAL_FEE_BPS` | Optional explicit referral setup; omitted by default |
 | `ENABLE_MAINNET_TRANSACTIONS` | Defaults to false; keep false until devnet transaction flows are verified |
+
+The native launch fee is fixed at **0.5 SOL** (500,000,000 lamports) in every new platform config. Activation rejects configs with another fee, including older zero-fee configs. Meteora retains 10% (0.05 SOL); the treasury claims 0.45 SOL per launch using **Prepare launch fee claim**, separately from trading fee claims. Pool creation and its fee are atomic; rejected launches do not pay the creation fee, although network fees can still apply.
 
 3. Run `supabase/token-metadata.sql` once in Supabase's SQL editor. The bucket is publicly readable for token metadata; no public upload policy is added. Server uploads require a verified creator signature and use immutable hash-based paths.
 4. With devnet RPC configured, connect the treasury wallet in Phantom. Open Launch → Fee Engine → Initialize platform bonding curve. Enter the economics, review the summary, and approve the configuration transaction in the wallet. Rent and protocol costs are additional to the estimated network fee.

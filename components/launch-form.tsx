@@ -74,7 +74,7 @@ export function LaunchForm() {
       </form> : <div className="launch-review">
         <div className="review-profile">{displayImage ? <img src={displayImage} alt="Your token" width="72" height="72" /> : <div className="token-placeholder">{draft.ticker.slice(0, 1)}</div>}<div><h3>{draft.name}</h3><p className="mono">${draft.ticker}</p></div></div>
         <p className="review-description">{draft.description || "No description added."}</p>
-        <dl><div><dt>Website</dt><dd>{draft.website || "Not added"}</dd></div><div><dt>X</dt><dd>{draft.x ? `@${draft.x}` : "Not added"}</dd></div><div><dt>Launch mechanism</dt><dd>Meteora fair-launch curve</dd></div></dl>
+        <dl><div><dt>Website</dt><dd>{draft.website || "Not added"}</dd></div><div><dt>X</dt><dd>{draft.x ? `@${draft.x}` : "Not added"}</dd></div><div><dt>Launch fee</dt><dd>0.5 SOL + rent and network fees</dd></div><div><dt>Launch mechanism</dt><dd>Meteora fair-launch curve</dd></div></dl>
         <LaunchActions draft={draft} />
         <div className="form-actions"><button className="quiet-button" onClick={() => setReview(false)}>Edit profile</button></div>
       </div>}

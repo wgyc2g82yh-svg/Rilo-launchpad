@@ -1,10 +1,11 @@
 import "server-only";
 import BN from "bn.js";
 import { PublicKey } from "@solana/web3.js";
-import { ActivationType, BaseFeeMode, CollectFeeMode, DammV2DynamicFeeMode, DynamicBondingCurveClient, MigratedCollectFeeMode, MigrationFeeOption, MigrationOption, TokenAuthorityOption, TokenType, buildCurveWithMarketCap, deriveDbcPoolAddress, getCurrentPoint } from "@meteora-ag/dynamic-bonding-curve-sdk";
+import { CollectFeeMode, DynamicBondingCurveClient, MigrationOption, PROTOCOL_POOL_CREATION_FEE_PERCENT, TokenAuthorityOption, TokenType, deriveDbcPoolAddress, getCurrentPoint } from "@meteora-ag/dynamic-bonding-curve-sdk";
 import { address, buildTransaction, chainConnection } from "@/lib/chain-transactions";
 import { cached, IntegrationError, transactionNetwork } from "@/lib/integration-server";
-import { SOL_MINT } from "@/lib/integration-types";
+import { buildLaunchCurve } from "@/lib/launch-policy";
+import { LAUNCH_FEE_LAMPORTS, SOL_MINT } from "@/lib/integration-types";
 import type { PoolDetails } from "@/lib/integration-types";
 
 export const dbc = () => new DynamicBondingCurveClient(chainConnection(), "confirmed");
@@ -17,6 +18,7 @@ export async function getLaunchConfig() {
     if (config.quoteMint.toBase58() !== SOL_MINT || config.creatorTradingFeePercentage !== 1 || config.tokenUpdateAuthority !== TokenAuthorityOption.Immutable || config.tokenType !== TokenType.SPLToken || config.migrationOption !== MigrationOption.MET_DAMM_V2 || config.collectFeeMode !== CollectFeeMode.QuoteToken || config.creatorLiquidityPercentage !== 0 || config.partnerLiquidityPercentage !== 0 || config.creatorPermanentLockedLiquidityPercentage !== 1 || config.partnerPermanentLockedLiquidityPercentage !== 99) throw new IntegrationError(503, "This launch configuration does not match RILO’s published fee and liquidity policy.");
     if (!process.env.RILO_TREASURY_ADDRESS || config.feeClaimer.toBase58() !== process.env.RILO_TREASURY_ADDRESS) throw new IntegrationError(503, "The platform fee receiver does not match the launch configuration.");
     if (!config.fixedTokenSupplyFlag || !config.preMigrationTokenSupply.eq(config.postMigrationTokenSupply) || !config.lockedVestingConfig.amountPerPeriod.isZero() || !config.lockedVestingConfig.cliffUnlockAmount.isZero() || config.creatorLiquidityVestingInfo.vestingPercentage || config.partnerLiquidityVestingInfo.vestingPercentage || config.migrationFeePercentage || config.creatorMigrationFeePercentage || config.transferFeeFlag) throw new IntegrationError(503, "This configuration includes token allocations or fee options outside RILO’s fair-launch policy.");
+    if (config.poolCreationFee.toString() !== LAUNCH_FEE_LAMPORTS) throw new IntegrationError(503, "The launch configuration must charge exactly 0.5 SOL. Initialize the updated RILO curve before enabling launches.");
     return { key, config };
   });
 }
@@ -29,7 +31,7 @@ export async function createLaunch(wallet: string, mint: string, name: string, s
   const { key } = await getLaunchConfig();
   const pool = deriveDbcPoolAddress(new PublicKey(SOL_MINT), new PublicKey(mint), new PublicKey(key)).toBase58();
   const transaction = await dbc().creator.createPool({ config: new PublicKey(key), baseMint: new PublicKey(mint), poolCreator: new PublicKey(wallet), payer: new PublicKey(wallet), name, symbol, uri });
-  return buildTransaction(transaction, wallet, "launch", { mint, pool, summary: `Launch ${symbol} on RILO’s fair-launch curve. Creator receives 1% of distributable trading fees. Liquidity positions remain permanently locked at graduation.` });
+  return buildTransaction(transaction, wallet, "launch", { mint, pool, summary: `Launch ${symbol} on RILO’s fair-launch curve. Launch fee: 0.5 SOL plus rent and network fees. Creator receives 1% of distributable trading fees. Liquidity positions remain permanently locked at graduation.` });
 }
 export async function poolForMint(mint: string): Promise<PoolDetails | null> {
   return cached(`dbc-pool:${mint}`, 25_000, async () => {
@@ -50,6 +52,13 @@ export async function claimPoolFees(wallet: string, poolAddress: string, role: s
   const config = await client.state.getPoolConfig(pool.poolState.config);
   if (!config || pool.poolState.config.toBase58() !== process.env.RILO_DBC_CONFIG) throw new IntegrationError(422, "This pool is not part of the configured RILO launchpad.");
   const payer = new PublicKey(wallet);
+  if (role === "creation") {
+    if (config.feeClaimer.toBase58() !== wallet || wallet !== process.env.RILO_TREASURY_ADDRESS) throw new IntegrationError(403, "Connect the platform treasury wallet to claim launch fees.");
+    if (config.poolCreationFee.isZero()) throw new IntegrationError(422, "This pool has no launch fee to claim.");
+    const transaction = await client.partner.claimPartnerPoolCreationFee({ pool: new PublicKey(poolAddress), feeReceiver: payer });
+    const amount = config.poolCreationFee.muln(100 - PROTOCOL_POOL_CREATION_FEE_PERCENT).divn(100);
+    return buildTransaction(transaction, wallet, "claim-creation", { pool: poolAddress, summary: `Claim ${amount.toString()} lamports of launch fees to the treasury, after Meteora's ${PROTOCOL_POOL_CREATION_FEE_PERCENT}% protocol share. Network fees apply.` });
+  }
   const metrics = await client.state.getPoolFeeMetrics(poolAddress);
   let transaction;
   if (role === "creator") {
@@ -68,16 +77,10 @@ export async function createCurveConfig(body: Record<string, unknown>) {
   if (wallet !== process.env.RILO_TREASURY_ADDRESS) throw new IntegrationError(403, "Only the configured treasury wallet can initialize RILO’s curve.");
   const supply = Number(body.supply), initialMarketCap = Number(body.initialMarketCap), migrationMarketCap = Number(body.migrationMarketCap), feeBps = Number(body.feeBps);
   if (!Number.isSafeInteger(supply) || supply < 1 || supply > 1e12 || !Number.isFinite(initialMarketCap) || initialMarketCap <= 0 || !Number.isFinite(migrationMarketCap) || migrationMarketCap <= initialMarketCap || migrationMarketCap > 1e9 || !Number.isInteger(feeBps) || feeBps < 25 || feeBps > 1000) throw new IntegrationError(400, "Enter a valid supply, market-cap thresholds in SOL, and fee from 25 to 1000 basis points.");
-  const curve = buildCurveWithMarketCap({
-    token: { tokenType: TokenType.SPLToken, tokenBaseDecimal: 6, tokenQuoteDecimal: 9, tokenAuthorityOption: TokenAuthorityOption.Immutable, totalTokenSupply: supply, leftover: 0 },
-    fee: { baseFeeParams: { baseFeeMode: BaseFeeMode.FeeSchedulerLinear, feeSchedulerParam: { startingFeeBps: feeBps, endingFeeBps: feeBps, numberOfPeriod: 0, totalDuration: 0 } }, dynamicFeeEnabled: false, collectFeeMode: CollectFeeMode.QuoteToken, creatorTradingFeePercentage: 1, poolCreationFee: 0, enableFirstSwapWithMinFee: true },
-    migration: { migrationOption: MigrationOption.MET_DAMM_V2, migrationFeeOption: MigrationFeeOption.Customizable, migrationFee: { feePercentage: 0, creatorFeePercentage: 0 }, migratedPoolFee: { collectFeeMode: MigratedCollectFeeMode.QuoteToken, dynamicFee: DammV2DynamicFeeMode.Disabled, poolFeeBps: feeBps } },
-    liquidityDistribution: { partnerLiquidityPercentage: 0, creatorLiquidityPercentage: 0, partnerPermanentLockedLiquidityPercentage: 99, creatorPermanentLockedLiquidityPercentage: 1 },
-    lockedVesting: { totalLockedVestingAmount: 0, numberOfVestingPeriod: 0, cliffUnlockAmount: 0, totalVestingDuration: 0, cliffDurationFromMigrationTime: 0 }, activationType: ActivationType.Timestamp, initialMarketCap, migrationMarketCap,
-  });
+  const curve = buildLaunchCurve({ supply, initialMarketCap, migrationMarketCap, feeBps });
   const payer = new PublicKey(wallet);
   const transaction = await dbc().partner.createConfig2({ ...curve, config: new PublicKey(configAddress), feeClaimer: payer, leftoverReceiver: payer, quoteMint: new PublicKey(SOL_MINT), payer, transferFeeParameters: null });
-  return buildTransaction(transaction, wallet, "create-config", { config: configAddress, summary: `Initialize fixed-supply ${supply.toLocaleString()} token curve: ${initialMarketCap} → ${migrationMarketCap} SOL market cap; ${feeBps / 100}% trading fee; creator gets 1% of distributable fees; 100% LP positions permanently locked on graduation. Review rent and protocol costs in your wallet.` });
+  return buildTransaction(transaction, wallet, "create-config", { config: configAddress, summary: `Initialize fixed-supply ${supply.toLocaleString()} token curve: ${initialMarketCap} → ${migrationMarketCap} SOL market cap; ${feeBps / 100}% trading fee; each launch costs 0.5 SOL plus rent and network fees; creator gets 1% of distributable fees; 100% LP positions permanently locked on graduation. Review rent and protocol costs in your wallet.` });
 }
 
 export async function curveSwap(input: Record<string, unknown>) {

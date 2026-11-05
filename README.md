@@ -16,10 +16,10 @@ Next.js 15 app with the metallic landing page at `/` and the launchpad at `/app`
 | Liquidity at graduation | DAMM v2 migration via Meteora's migration infrastructure; 100% of graduated LP positions permanently locked, 99% platform / 1% creator fee rights |
 | Treasury | Platform curve fee claim and explicit SOL-budget Jupiter buyback into the configured treasury wallet |
 | Creator history | Verified Meteora pool creator and returned Meteora launch records; no creator inference from mint authority, no rug-history verdict |
-| Wallet analysis | Owners of up to 12 largest token accounts and up to 2 recent successful transactions for each of 6 sampled owners; shared SOL sender evidence includes signatures and slots |
+| Wallet analysis | Owners of up to 12 largest token accounts and up to 4 recent successful transactions for each of 6 sampled owners; shared SOL sender evidence includes signatures and slots |
 | Token controls | Mint/freeze authorities, supply, token program and largest token-account distribution through the configured Solana RPC |
 
-Market rankings and shared funding are observations, not safety ratings. Pools, exchanges and service wallets can create benign concentration and funding relationships. No private-bundle attribution, cross-program full-history index, global rug classifier or clean-launch verdict is implemented. Token-2022 extension behavior is not fully analyzed, and direct curve trading is limited to original SPL tokens with SOL quotes. Graduated LP fees are claimed through Meteora; the in-app fee claim covers accrued DBC curve fees.
+Market rankings and shared funding are observations, not safety ratings. Pools, exchanges and service wallets can create benign concentration and funding relationships. No private-bundle attribution, cross-program full-history index, independent global rug classifier or clean-launch verdict is implemented. Security reports now include attributed RugCheck warnings and a bounded sample of the verified Meteora creator’s other launches. Token-2022 extension behavior is not fully analyzed, and direct curve trading is limited to original SPL tokens with SOL quotes. Graduated LP fees are claimed through Meteora; the in-app fee claim covers accrued DBC curve fees.
 
 Buybacks are treasury-wallet-approved swaps, not an unattended trading bot. The operator chooses a budget after collecting fees; this version does not automatically allocate treasury deposits, burn purchased tokens, or promise returns. Jupiter referral fee collection is optional and requires properly initialized referral accounts; quotes display the provider's returned total fee.
 
@@ -108,3 +108,27 @@ The terminal offers Live (one-minute candles, polled every 15 seconds), 5m, and 
 Market cards and terminal headings render GeckoTerminal token `image_url` artwork, with HTTPS/IPFS support and an initials fallback for missing or failed images. Images are loaded directly by the browser with no referrer.
 
 The liquidity panel reads RugCheck's public report for the selected mint and pool, cached for one minute. It shows reported locked/burned, partially locked, unlocked, or unverified LP tokens. Missing or inconsistent values, unmatched pools, and position-based pools with placeholder LP-token fields stay unverified. The percentage covers the provider's tracked LP tokens, not total token supply, dollar liquidity, or all markets. The integration does not independently verify locker duration or developer withdrawal control. It never interprets unlocked LP as proof the developer owns it. Provider outages show unverified status, rather than a stale positive badge.
+
+## Security report and on-page monitoring
+
+`GET /api/rilo/security?mint=<mint>&pool=<optional pool>` combines confirmed mint authority and freeze authority reads, largest-token-account concentration, bounded shared-SOL-sender and same-slot token accumulation evidence, verified Meteora creator launch records, attributed RugCheck token warnings and creator launch reports, and selected-pool liquidity evidence. Independent source failures become unknown checks; an invalid or missing mint fails the report. Reports cache for 30 seconds; wallet evidence caches for 60 seconds and LP evidence for 60 seconds. Sources are separate snapshots, not atomic state.
+
+The terminal offers opt-in monitoring every 60 seconds while visible. Alerts are local to the mounted panel and trigger when a check changes to attention or its evidence changes after the first snapshot. Closing/reloading the panel clears monitoring and its ten-entry alert buffer. This does not provide background monitoring, push notifications, or persisted alert history. Existing source caching can delay a signal.
+
+Coverage remains partial: private bundles, independent historical rug classification, holder-owner concentration (including pool exclusions), transfer simulations, and clean-launch verification are not implemented. Largest token accounts are not unique holders. Meteora creator history is capped at 30 records, covers Meteora only, and is not proof of misconduct. A report never certifies safety; unknown evidence cannot produce a clean verdict.
+
+### Detection evidence
+
+Wallet sampling inspects up to 12 large token accounts, six owners and four recent successful transactions per owner, with a 12-second sampling budget after owner lookup. Same-slot accumulation requires positive raw token-balance changes and the wallet’s signature; failed transactions, missing ownership/balances, self-funding and repeated samples cannot manufacture signals. These are recent observations, not a launch-time reconstruction or proof of private bundle membership. Transfers and independent activity can explain same-slot accumulation. Funding groups include public services; common funding does not prove common control.
+
+RugCheck reports are restricted to a verified mainnet genesis hash, shared with LP checks and cached for 60 seconds. Rugged status requires an explicit boolean and matching mint; numeric scores alone never classify a rug. Other developer launches are obtained from the verified Meteora creator, deduplicated and capped at five reports per scan. Each report must match both mint and creator. Failed or mismatched reports remain unknown, and false or missing rugged status never certifies safety. The list is not guaranteed chronological; it does not claim each launch predates the selected token. Fetch timestamps describe retrieval, not the provider’s underlying analysis time.
+
+The expandable evidence panel displays source-attributed warnings, other launch mints, wallet receivers, funding amounts, slots and transaction signatures. Alert comparisons survive manual refresh and monitoring toggles for the same token; switching token/pool clears the baseline. This release has no closed-tab/background alert worker or push delivery.
+
+### Token-2022 controls and validation
+
+The on-chain mint scan now highlights configured permanent-delegate, transfer-hook, transfer-fee, default-account-state, non-transferable and pausable extensions. Presence requests review; it does not establish the current authority or settings, inspect hook code, simulate a sale, or independently establish a honeypot. Unknown extension types and missing extension coverage remain unverified. Provider warning flags remain separate from these RPC observations.
+
+Largest-account snapshots with duplicate accounts, malformed balances, or totals above the mint supply are discarded as unavailable. Wallet sampling continues past a missing transaction and reports the number of owners actually attempted. Developer risk requests begin when the creator resolves, alongside the other evidence requests.
+
+Validation for this update: 29 unit tests, TypeScript checking, production build, and both local-provider API suites. Fixtures cover shared funding, same-slot accumulation, extension warnings, mismatched provider mints, absent transactions, and unavailable sources. These checks do not establish production provider performance or an exhaustive detection rate.

@@ -51,6 +51,14 @@ try {
   assert.equal(result.status, 200); assert.equal(result.body.topAccountsShare, 75);
   assert.equal(result.body.coverage, 'partial');
   assert.equal(result.body.checks.find(check => check.title === 'Bundle detection').state, 'unavailable');
+  const security = await get(`/api/rilo/security?mint=${mint}`);
+  assert.equal(security.status, 200);
+  assert.equal(security.body.verdict, 'attention');
+  assert.equal(security.body.checks.find(c => c.id === 'mint').state, 'attention');
+  assert.equal(security.body.checks.find(c => c.id === 'funding').state, 'unknown');
+  assert.equal(security.body.checks.find(c => c.id === 'clean').state, 'unknown');
+  assert.equal((await get('/api/rilo/security?mint=invalid')).status, 400);
+  assert.equal((await get(`/api/rilo/security?mint=${mint}&pool=bad`)).status, 400);
   const before = upstreamCalls; await get(`/api/solana/scan?mint=${mint}`); assert.equal(upstreamCalls, before, 'cache avoids duplicate RPC calls');
   const missingHolders = await get(`/api/solana/scan?mint=${partial}`);
   assert.equal(missingHolders.status, 200); assert.equal(missingHolders.body.topAccountsShare, null);

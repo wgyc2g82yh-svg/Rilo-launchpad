@@ -12,8 +12,8 @@ import { MarketTerminal } from "@/components/market-terminal";
 import { formatSupply, isSolanaAddress } from "@/lib/token-analysis";
 import type { Scan } from "@/lib/token-analysis";
 
-const NAV = [{name:"Home",icon:"home"},{name:"Discover",icon:"compass"},{name:"Launch",icon:"launch"},{name:"Trending",icon:"trending"},{name:"Signals",icon:"pulse"},{name:"Watchlist",icon:"star"},{name:"Activity",icon:"activity"}] as const;
-type View = "discover" | "launch" | "trending" | "signals" | "activity" | "home";
+const NAV = [{name:"Home",icon:"home"},{name:"Discover",icon:"compass"},{name:"Launch",icon:"launch"},{name:"Signals",icon:"pulse"},{name:"Watchlist",icon:"star"},{name:"Activity",icon:"activity"}] as const;
+type View = "discover" | "launch" | "signals" | "activity" | "home";
 type SavedMint = { mint: string };
 type Status = { configured: boolean; connected: boolean; genesisHash?: string };
 const WATCH_KEY = "rilo-watchlist-v1";
@@ -81,6 +81,7 @@ function RiloDashboard() {
     setTab(name.toLowerCase() as View); setSelectedMint(""); setScan(null); setError("");
     window.scrollTo({top:0,behavior:"instant"});
   }
+  const tokenSearch = (<form className="scan-form" onSubmit={event => { event.preventDefault(); void check(mint); }}><label htmlFor="mint-address" className="sr-only">Solana token mint address</label><span className="scan-symbol" aria-hidden="true">⌕</span><input id="mint-address" value={mint} onChange={event => setMint(event.target.value)} placeholder="Paste a Solana token mint address" autoComplete="off" spellCheck={false} maxLength={44} required /><button className="metal-button" disabled={busy}>{busy ? "Scanning…" : "Analyze token"}</button></form>);
   const navigation = (mobile: boolean) => <nav className={mobile ? "rt-mobile-nav" : "rt-desktop-nav"} aria-label={mobile ? "Mobile" : "Main navigation"}>{NAV.map(item=><button key={item.name} className={tab===item.name.toLowerCase() ? "rt-active" : ""} aria-current={tab===item.name.toLowerCase() ? "page" : undefined} onClick={()=>navigate(item.name)}>{mobile && <OriginalIcon name={item.icon} size={21}/>}<span>{item.name}</span></button>)}</nav>;
   return <main id="rt" className="rilo-app">
     <OriginalBackground />
@@ -91,16 +92,15 @@ function RiloDashboard() {
     </div></header>
     <div className="rt-container">
 
-      {tab === "home" ? <OriginalHero onExplore={()=>navigate("Discover")} onTechnology={()=>navigate("Signals")}/> : tab === "discover" || tab === "trending" || tab === "signals" ? <>
+      {tab === "home" ? <OriginalHero onExplore={()=>navigate("Discover")} onTechnology={()=>navigate("Signals")}/> : tab === "discover" || tab === "signals" ? <>
         {tab === "signals" && <section className="app-intro"><div><p className="eyebrow">THE SIGNAL ENGINE</p><h1>Look beneath<br/><span>the launch.</span></h1><p>Inspect token controls, supply concentration, and public wallet evidence. Missing coverage stays visible.</p></div></section>}
         <div className="rilo-live-content" ref={technologySection}>
-        <div className="app-title-row"><p className="eyebrow">{tab === "trending" ? "TRENDING / SOLANA" : "ON-CHAIN INTELLIGENCE"}</p><span className={`connection-status ${status?.connected ? "connected" : ""}`}><i />{status === null ? "Checking connection" : status.connected ? "RPC connected" : status.configured ? "RPC unavailable" : "RPC setup required"}</span></div>
-        <form className="scan-form" onSubmit={event => { event.preventDefault(); void check(mint); }}><label htmlFor="mint-address" className="sr-only">Solana token mint address</label><span className="scan-symbol" aria-hidden="true">⌕</span><input id="mint-address" value={mint} onChange={event => setMint(event.target.value)} placeholder="Paste a Solana token mint address" autoComplete="off" spellCheck={false} maxLength={44} required /><button className="metal-button" disabled={busy}>{busy ? "Scanning…" : "Analyze token"}</button></form>
-        <p className="scan-help">Read-only checks · No wallet required · Uses your configured Solana network</p>
+        <div className="app-title-row"><p className="eyebrow">ON-CHAIN INTELLIGENCE</p><span className={`connection-status ${status?.connected ? "connected" : ""}`}><i />{status === null ? "Checking connection" : status.connected ? "RPC connected" : status.configured ? "RPC unavailable" : "RPC setup required"}</span></div>
+        {(selectedMint || tab === "signals") && tokenSearch}
         {error && <p className="form-error" role="alert">{error}</p>}
         {storageNotice && <p className="form-note" role="status">{storageNotice}</p>}
         {busy && <div className="scan-progress" role="status"><span />Reading token data from the chain…</div>}
-        {!selectedMint && tab !== "signals" && <div id="rt-launches"><MarketFeed key={tab} initialMode={tab === "trending" ? "trending" : "new"} onSelect={market => void check(market.mint, market)} /></div>}
+        {!selectedMint && tab !== "signals" && <div id="rt-launches"><MarketFeed key={tab} search={tokenSearch} onSelect={market => void check(market.mint, market)} /></div>}
         {selectedMint && <MarketTerminal key={selectedMint} mint={selectedMint} initialMarket={selectedMarket} decimals={scan?.info.decimals} onClose={() => { setSelectedMint(""); setScan(null); setError(""); }} />}
         {scan ? <details className="coin-raw-details"><summary>Token address & raw snapshot</summary><section className="scan-results" aria-label="Token analysis">
           <div className="result-heading"><div><p className="eyebrow">TOKEN ANALYSIS · {scan.program.toUpperCase()}</p><h2 className="mono">{shorten(scan.mint)}</h2></div><div className="result-actions"><button className="quiet-button" onClick={() => void copy()}>{copied ? "Copied" : "Copy address"}</button><button className="icon-button" aria-label={watch.some(item => item.mint === scan.mint) ? "Remove token from watchlist" : "Add token to watchlist"} aria-pressed={watch.some(item => item.mint === scan.mint)} onClick={() => toggleWatch(scan.mint)}><Star filled={watch.some(item => item.mint === scan.mint)} /></button></div></div>

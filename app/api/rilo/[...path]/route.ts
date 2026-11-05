@@ -1,3 +1,4 @@
+import { tokenSecurity } from "@/lib/security-service";
 import { NextRequest, NextResponse } from "next/server";
 import { discoverMarkets, tokenChart, tokenMarket } from "@/lib/market-data";
 import { capacity, IntegrationError, jsonBody, publicError } from "@/lib/integration-server";
@@ -28,6 +29,7 @@ async function handle(request: NextRequest) {
         if (path === "curve/order") return curveSwap(Object.fromEntries(params));
         if (path === "curve") return curveSummary();
         if (path === "pool") return { pool: await poolForMint(address(params.get("mint"))) };
+        if (path === "security") return tokenSecurity(address(params.get("mint")), params.has("pool") ? address(params.get("pool")) : undefined);
         if (path === "wallets") return analyzeWallets(address(params.get("mint")));
         if (path === "transaction") return transactionStatus(params.get("signature") || "");
       }

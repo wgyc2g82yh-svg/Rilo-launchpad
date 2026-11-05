@@ -72,3 +72,15 @@
 .liquidity-readings span { display:block; font-size:12px; color:#9797a4; margin-bottom:8px; }
 .liquidity-readings strong { display:block; font-size:20px; font-weight:400; }
 .liquidity-unlocked,.liquidity-partial { color:#e2c89a; border-color:#e2c89a55; }
+
+.security-engine { margin-top: 20px; }
+.security-checks { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:12px; margin:16px 0; }
+.security-checks article { padding:16px; border:1px solid #ffffff20; border-radius:12px; background:#ffffff03; }
+.security-checks article>div { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.security-checks p { overflow-wrap:anywhere; }
+.security-attention { color:#ffd06a; }
+.security-observed { color:#d6e0dc; }
+.security-unknown { color:#a6a6b2; }
+.security-engine label { display:flex; align-items:center; gap:10px; }
+.security-engine input[type=checkbox] { width:18px; height:18px; accent-color:silver; }
+.security-evidence{margin-top:18px;border-top:1px solid #333;padding-top:16px;min-width:0}.security-evidence summary{cursor:pointer;color:#e3e4e8}.security-evidence article{border-bottom:1px solid #292a2d;padding:8px 0}.security-evidence code{overflow-wrap:anywhere;white-space:normal;font-size:11px}.security-evidence h4{margin:20px 0 10px}.security-evidence p{overflow-wrap:anywhere}.security-evidence a{color:#dedfe4;text-decoration:underline}

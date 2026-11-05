@@ -7,6 +7,7 @@ import { Keypair, PublicKey, SystemProgram, Transaction, TransactionMessage, Ver
 import bs58 from 'bs58';
 const genesis='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
 const mint='So11111111111111111111111111111111111111112',token='TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const extendedMint='TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 const signer=Keypair.generate(),receiver=Keypair.generate(),secret='test-only-signing-secret-never-use-in-production';
 const signature=bs58.encode(new Uint8Array(64).fill(3));
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -20,7 +21,7 @@ const fixture=createServer(async(request,response)=>{
       const wallet=url.searchParams.get('taker');
       const tx=wallet?new VersionedTransaction(new TransactionMessage({payerKey:new PublicKey(wallet),recentBlockhash:mint,instructions:[SystemProgram.transfer({fromPubkey:new PublicKey(wallet),toPubkey:receiver.publicKey,lamports:1})]}).compileToV0Message()):null;
       result={inputMint:url.searchParams.get('inputMint'),outputMint:url.searchParams.get('outputMint'),inAmount:url.searchParams.get('amount'),outAmount:'900000',otherAmountThreshold:'891000',feeBps:2,feeMint:mint,slippageBps:100,priceImpactPct:'0.1',router:'fixture',requestId:'fixture-order',transaction:tx?Buffer.from(tx.serialize()).toString('base64'):null};
-    }else if(url.pathname.endsWith('/report'))result={mint:token,creator:signer.publicKey.toBase58(),markets:[{pubkey:mint,mintA:token,mintB:mint,mintLP:token,lp:{lpLocked:75,lpUnlocked:25,lpLockedPct:75}}]};
+    }else if(url.pathname.endsWith('/report'))result={mint:token,creator:signer.publicKey.toBase58(),rugged:true,risks:[{name:'Fixture risk',level:'danger',description:'Provider warning fixture'}],markets:[{pubkey:mint,mintA:token,mintB:mint,mintLP:token,lp:{lpLocked:75,lpUnlocked:25,lpLockedPct:75}}]};
     else if(url.pathname.includes('/ohlcv/')){chartRequests.push({path:url.pathname,aggregate:url.searchParams.get('aggregate'),side:url.searchParams.get('token')});result={data:{attributes:{ohlcv_list:[[120,1,2,1,2,30],[60,1,1,1,1,20]]}}};}
     else result={data:[{id:`solana_${mint}`,attributes:{address:mint,name:'RILO / SOL',base_token_price_usd:'0.01',volume_usd:{h24:'1000'},reserve_in_usd:'5000',price_change_percentage:{h24:'2.5'},pool_created_at:'2026-01-01T00:00:00Z'},relationships:{base_token:{data:{id:`solana_${token}`}},quote_token:{data:{id:`solana_${mint}`}},dex:{data:{id:'test-dex'}}}}],included:[{id:`solana_${token}`,attributes:{name:'Fixture token',symbol:'TEST',decimals:6,image_url:'https://example.com/token.png'}}]};
     response.setHeader('Content-Type','application/json');response.end(JSON.stringify(result));return;
@@ -28,6 +29,15 @@ const fixture=createServer(async(request,response)=>{
   let body='';for await(const chunk of request)body+=chunk;const input=JSON.parse(body);
   if(url.pathname.endsWith('/execute')){executed++;response.setHeader('Content-Type','application/json');response.end(JSON.stringify({status:'Success',signature}));return;}
   if(input.method==='getGenesisHash')result=genesis;
+  else if(input.method==='getProgramAccounts')result=[];
+  else if(input.method==='getAccountInfo')result={context:{slot:101},value:{owner:input.params[0]===extendedMint?extendedMint:token,data:{parsed:{type:'mint',info:{supply:'1000000',decimals:6,mintAuthority:null,freezeAuthority:null,isInitialized:true,...(input.params[0]===extendedMint?{extensions:[{extension:'permanentDelegate',state:{delegate:mint}}]}:{})}}}}};
+  else if(input.method==='getTokenLargestAccounts')result={value:[{address:signer.publicKey.toBase58(),amount:'100'},{address:receiver.publicKey.toBase58(),amount:'100'}]};
+  else if(input.method==='getMultipleAccounts')result={value:[signer,receiver].map(key=>({data:{parsed:{type:'account',info:{owner:key.publicKey.toBase58(),mint:token,tokenAmount:{amount:'100'}}}}}))};
+  else if(input.method==='getSignaturesForAddress')result=[{signature:'missing-'+input.params[0],err:null},{signature:input.params[0],err:null}];
+  else if(input.method==='getTransaction'){
+    const owner=input.params[0];
+    if(owner.startsWith('missing-'))result=null;else result={slot:100,meta:{err:null,preTokenBalances:[],postTokenBalances:[{accountIndex:0,mint:token,owner,uiTokenAmount:{amount:'100'}}]},transaction:{message:{accountKeys:[{pubkey:owner,signer:true}],instructions:[{program:'system',parsed:{type:'transfer',info:{source:mint,destination:owner,lamports:100000}}}]}}};
+  }
   else if(input.method==='sendTransaction'){sent++;result=signature;}
   else if(input.method==='getSignatureStatuses')result={value:[{err:null,confirmationStatus:'confirmed'}]};
   else result=null;
@@ -45,6 +55,14 @@ try{
   const feed=await get('discover?mode=trending');assert.equal(feed.status,200);assert.equal(feed.body.markets[0].symbol,'TEST');assert.equal(feed.body.markets[0].volume24h,1000);assert.equal(feed.body.markets[0].imageUrl,'https://example.com/token.png');
   const liquidity=await get(`liquidity?mint=${token}&pool=${mint}`);assert.equal(liquidity.status,200);assert.equal(liquidity.body.status,'partial');assert.equal(liquidity.body.lockedPercent,75);assert.equal(liquidity.body.developerControl,'unverified');
   assert.equal((await get(`liquidity?mint=${token}&pool=${signer.publicKey.toBase58()}`)).body.status,'unknown');
+  const security=await get(`security?mint=${token}&pool=${mint}`);assert.equal(security.status,200,JSON.stringify(security));
+  assert.equal(security.body.provider.rugged,true);assert.equal(security.body.checks.find(c=>c.id==='provider').state,'attention');
+  assert.equal(security.body.wallets.sharedFunding.length,1);assert.equal(security.body.wallets.accumulation.length,1);
+  assert.equal(security.body.checks.find(c=>c.id==='bundles').state,'attention');assert.equal(security.body.checks.find(c=>c.id==='clean').state,'unknown');
+  const extended=await get(`security?mint=${extendedMint}`);assert.equal(extended.status,200);
+  assert.equal(extended.body.checks.find(c=>c.id==='extensions').state,'attention');
+  assert.equal(extended.body.provider,null,'mismatched provider mint is discarded');
+  assert.equal(extended.body.checks.find(c=>c.id==='clean').state,'unknown');
   const chart=await get(`chart?pool=${mint}&side=base`);assert.equal(chart.body.candles[0].time,60);
   assert.equal(chart.body.interval,'5m');
   const live=await get(`chart?pool=${mint}&side=base&interval=live`);assert.equal(live.status,200);assert.equal(live.body.refreshMs,15000);

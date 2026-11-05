@@ -1,4 +1,5 @@
 "use client";
+import type { Market } from "@/lib/integration-types";
 
 import { useEffect, useRef, useState } from "react";
 import { OriginalBackground, OriginalBrand, OriginalHero, OriginalIcon } from "@/components/original-brand";
@@ -22,6 +23,7 @@ export function RiloApp() { return <WalletProvider><RiloDashboard /></WalletProv
 function RiloDashboard() {
   const [tab, setTab] = useState<View>("discover");
   const [mint, setMint] = useState("");
+  const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
   const [selectedMint, setSelectedMint] = useState("");
   const [scan, setScan] = useState<Scan | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,12 +56,12 @@ function RiloDashboard() {
     try { localStorage.setItem(WATCH_KEY, JSON.stringify(next)); setStorageNotice(""); }
     catch { setStorageNotice("Browser storage is unavailable. This watchlist will last for this session."); }
   }
-  async function check(address: string) {
+  async function check(address: string, market: Market | null = null) {
     const value = address.trim();
     if (!isSolanaAddress(value)) { setError("Paste a valid Solana token mint address."); return; }
     controller.current?.abort();
     const abort = new AbortController(); controller.current = abort;
-    setBusy(true); setError(""); setScan(null); setMint(value); setSelectedMint(value); setTab("discover"); setWatchOpen(false);
+    setBusy(true); setError(""); setScan(null); setMint(value); setSelectedMarket(market); setSelectedMint(value); setTab("discover"); setWatchOpen(false);
     try {
       const response = await fetch(`/api/solana/scan?mint=${encodeURIComponent(value)}`, { signal: abort.signal });
       const data = await response.json();
@@ -100,7 +102,7 @@ function RiloDashboard() {
         {error && <p className="form-error" role="alert">{error}</p>}
         {storageNotice && <p className="form-note" role="status">{storageNotice}</p>}
         {busy && <div className="scan-progress" role="status"><span />Reading token data from the chain…</div>}
-        {selectedMint && <MarketTerminal key={selectedMint} mint={selectedMint} decimals={scan?.info.decimals} onClose={() => { setSelectedMint(""); setScan(null); setError(""); }} />}
+        {selectedMint && <MarketTerminal key={selectedMint} mint={selectedMint} initialMarket={selectedMarket} decimals={scan?.info.decimals} onClose={() => { setSelectedMint(""); setScan(null); setError(""); }} />}
         {scan ? <details className="coin-raw-details"><summary>Token address & raw snapshot</summary><section className="scan-results" aria-label="Token analysis">
           <div className="result-heading"><div><p className="eyebrow">TOKEN ANALYSIS · {scan.program.toUpperCase()}</p><h2 className="mono">{shorten(scan.mint)}</h2></div><div className="result-actions"><button className="quiet-button" onClick={() => void copy()}>{copied ? "Copied" : "Copy address"}</button><button className="icon-button" aria-label={watch.some(item => item.mint === scan.mint) ? "Remove token from watchlist" : "Add token to watchlist"} aria-pressed={watch.some(item => item.mint === scan.mint)} onClick={() => toggleWatch(scan.mint)}><Star filled={watch.some(item => item.mint === scan.mint)} /></button></div></div>
           <p className="coverage-note">Partial coverage. These observations do not establish whether a launch is safe or a rug pull.</p>
@@ -109,7 +111,7 @@ function RiloDashboard() {
             <aside className="panel holders-panel"><div className="panel-heading"><h3>Supply distribution</h3></div><p className="subtle">Largest token accounts, not verified wallet owners. Pool and exchange accounts are included.</p>{scan.accounts.length ? <ol className="holder-list">{scan.accounts.map((account, index) => <li key={account.address}><div><span className="rank">{String(index + 1).padStart(2, "0")}</span><span className="mono">{shorten(account.address)}</span><strong>{account.share === null ? "—" : `${account.share.toFixed(2)}%`}</strong></div><span className="holder-bar"><i style={{ width: `${Math.min(account.share ?? 0, 100)}%` }} /></span></li>)}</ol> : <p className="empty-note">No largest-account data is available.</p>}<p className="subtle">Authority and account readings are separate RPC snapshots. Balances may change between them.</p></aside>
           </div>
         </section></details> : tab === "signals" && !busy && !selectedMint && <div className="discovery-grid"><section className="panel intelligence-panel"><div className="panel-heading"><div><p className="eyebrow">SIGNAL ENGINE</p><h2>Every signal needs evidence.</h2></div><span className="badge">READ ONLY</span></div><div className="engine-art" aria-hidden="true"><div className="engine-orbit orbit-one" /><div className="engine-orbit orbit-two" /><div className="engine-core"><Mark /></div><span className="engine-label label-one">AUTHORITY</span><span className="engine-label label-two">DISTRIBUTION</span><span className="engine-label label-three">ON-CHAIN DATA</span></div><p className="engine-caption">Paste a mint address to inspect the token. Unchecked signals stay visible, so missing data never becomes a clean-launch badge.</p></section><aside className="capabilities"><div className="panel capability-card"><span className="feature-number">01 / OBSERVE</span><h3>Token controls</h3><p>See whether supply can be increased or token accounts can be frozen.</p><span className="feature-state">Available with RPC</span></div><div className="panel capability-card"><span className="feature-number">02 / INSPECT</span><h3>Supply distribution</h3><p>Understand how much supply sits in the largest token accounts.</p><span className="feature-state">Available with RPC</span></div><div className="panel capability-card"><span className="feature-number">03 / CONNECT</span><h3>Wallet relationships</h3><p>Bundle analysis and developer history require launch indexing.</p><span className="feature-state pending">Integration pending</span></div></aside></div>}
-        {!selectedMint && tab !== "signals" && <div ref={marketSection} id="rt-launches"><MarketFeed key={tab} initialMode={tab === "trending" ? "trending" : "new"} onSelect={value => void check(value)} /></div>}
+        {!selectedMint && tab !== "signals" && <div ref={marketSection} id="rt-launches"><MarketFeed key={tab} initialMode={tab === "trending" ? "trending" : "new"} onSelect={market => void check(market.mint, market)} /></div>}
         </div>
       </> : tab === "activity" ? <section className="rilo-live-content activity-view"><p className="eyebrow">SIGNAL ACTIVITY</p><h1>Your latest intelligence.</h1><p className="subtle">Completed token checks from this session. Market browsing is not a safety verdict.</p>{activity.length ? activity.map((item,i)=><button className="panel activity-item" key={item.mint+item.time+i} onClick={()=>void check(item.mint)}><span className="mono">{shorten(item.mint)}</span><span>{new Date(item.time).toLocaleTimeString()}</span></button>) : <div className="panel empty-note">No completed token checks yet.</div>}</section> : tab === "guide" ? <section className="rilo-live-content guide-view"><p className="eyebrow">READING YOUR SIGNALS</p><h1>More context. Clearer decisions.</h1><div className="guide-grid">{[["Token controls","RPC readings show mint and freeze authorities. These are observations, not a safety guarantee."],["Wallet relationships","Shared public funding can come from exchanges or services. It does not prove bundling."],["Creator history","Verified returned Meteora creator records cover that provider, not every launch program."],["Engine preview","The animated hero is labeled simulation. Its example tokens and findings are separate from live markets."]].map(([title,body])=><article className="panel" key={title}><h2>{title}</h2><p className="subtle">{body}</p></article>)}</div></section> : <div className="rilo-live-content"><section className="app-intro compact"><div><h1>Your next launch.<br /><span>In full view.</span></h1><p>Create and save your token profile, then review it before deployment.</p></div></section><LaunchForm /></div>}
       <footer className="app-footer"><span className="powered-by">POWERED BY RILO</span><span>On-chain observations. Transparent coverage.</span><a href="https://x.com/RiloProtocol" target="_blank" rel="noopener noreferrer">@RiloProtocol</a></footer>

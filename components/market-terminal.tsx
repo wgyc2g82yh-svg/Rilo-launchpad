@@ -10,16 +10,16 @@ import { TokenChart } from "@/components/token-chart";
 import { usd } from "@/components/market-feed";
 
 type Quote = { order?: Order; built?: BuiltTransaction | null; router: string; outAmount: string; otherAmountThreshold: string; outputDecimals: number | null; feeBps: number | null; slippageBps: number; expiresAt?: number };
-export function MarketTerminal({ mint, decimals, onClose }: { mint: string; decimals?: number; onClose(): void }) {
-  const wallet = useWallet(), [markets, setMarkets] = useState<Market[]>([]), [market, setMarket] = useState<Market | null>(null), [pool, setPool] = useState<PoolDetails | null>(null), [marketError, setMarketError] = useState(""), [poolError, setPoolError] = useState("");
+export function MarketTerminal({ mint, decimals, initialMarket = null, onClose }: { mint: string; initialMarket?: Market | null; decimals?: number; onClose(): void }) {
+  const wallet = useWallet(), [markets, setMarkets] = useState<Market[]>([]), [market, setMarket] = useState<Market | null>(initialMarket), [pool, setPool] = useState<PoolDetails | null>(null), [marketError, setMarketError] = useState(""), [poolError, setPoolError] = useState("");
   const [side, setSide] = useState("buy"), [amount, setAmount] = useState(""), [slippage, setSlippage] = useState("100"), [quote, setQuote] = useState<Quote | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(""), [message, setMessage] = useState(""), [signature, setSignature] = useState(""), [now, setNow] = useState(Date.now());
   const quoteRequest = useRef<AbortController | null>(null);
   const terminalRef = useRef<HTMLElement | null>(null);
-  useEffect(() => { terminalRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [mint]);
+  useEffect(() => { terminalRef.current?.scrollIntoView({ behavior: "instant", block: "start" }); }, [mint]);
   useEffect(() => {
     const abort = new AbortController();
     let timer: number | undefined;
-    setMarkets([]); setMarket(null); setMarketError(""); setPool(null); setPoolError("");
+    setMarkets(initialMarket ? [initialMarket] : []); setMarket(initialMarket); setMarketError(""); setPool(null); setPoolError("");
     async function loadMarket() {
       try {
         if (!document.hidden) {
@@ -35,7 +35,7 @@ export function MarketTerminal({ mint, decimals, onClose }: { mint: string; deci
     void loadMarket();
     rilo<{ pool: PoolDetails | null }>(`pool?mint=${mint}`, undefined, abort.signal).then(data => setPool(data.pool)).catch(e => { if (!abort.signal.aborted) setPoolError(e.message); });
     return () => { abort.abort(); window.clearTimeout(timer); quoteRequest.current?.abort(); };
-  }, [mint]);
+  }, [mint, initialMarket]);
   useEffect(() => { quoteRequest.current?.abort(); setQuote(null); setError(""); }, [mint, side, amount, slippage, wallet.address]);
   useEffect(() => { if (!quote) return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, [quote]);
   const tokenDecimals = decimals ?? market?.decimals ?? null;
@@ -70,7 +70,7 @@ export function MarketTerminal({ mint, decimals, onClose }: { mint: string; deci
   return <section className="terminal" ref={terminalRef}><div className="terminal-heading"><div><p className="eyebrow">TOKEN INTELLIGENCE</p><div className="terminal-token-title"><TokenAvatar imageUrl={market?.imageUrl} symbol={market?.symbol || "?"} large /><h2>{market?.symbol || `${mint.slice(0,6)}…${mint.slice(-4)}`}</h2></div></div><button className="quiet-button" onClick={onClose}>Explore tokens</button></div>
     <div className="terminal-grid"><div className="panel chart-panel"><div className="market-metrics"><div><span>Price</span><strong>{usd(market?.price ?? null)}</strong></div><div><span>24h volume</span><strong className="white-volume">{usd(market?.volume24h ?? null, true)}</strong></div><div><span>Liquidity</span><strong>{usd(market?.liquidity ?? null, true)}</strong></div></div>{markets.length > 1 && <label className="pool-selector">Market<select value={market?.pool || ""} onChange={e => setMarket(markets.find(item => item.pool === e.target.value) ?? null)}>{markets.map(item => <option key={item.pool} value={item.pool}>{item.dex} · {item.pool.slice(0,6)}… · {usd(item.liquidity, true)}</option>)}</select></label>}
       {market && marketError && <p className="form-note">{marketError} Showing the last successful market snapshot.</p>}
-      {market ? <TokenChart pool={market.pool} side={market.tokenSide} /> : <p className="empty-note">{marketError || "Loading market history…"}</p>}<p className="data-caption address">Mint: {mint}</p></div>
+      {market ? <TokenChart mint={mint} pool={market.pool} side={market.tokenSide} /> : <p className="empty-note">{marketError || "Loading market history…"}</p>}<p className="data-caption address">Mint: {mint}</p></div>
       <aside className="panel trade-panel"><div className="segmented"><button disabled={busy} className={side === "buy" ? "selected" : ""} onClick={() => setSide("buy")}>Buy</button><button disabled={busy} className={side === "sell" ? "selected" : ""} onClick={() => setSide("sell")}>Sell</button></div><label>Amount in {side === "buy" ? "SOL" : market?.symbol || "tokens"}<input inputMode="decimal" placeholder="0.00" value={amount} disabled={busy} onChange={e => setAmount(e.target.value)} /></label><label>Maximum slippage<select value={slippage} disabled={busy} onChange={e => setSlippage(e.target.value)}><option value="50">0.5%</option><option value="100">1%</option><option value="200">2%</option><option value="500">5%</option></select></label>
         <button className="quiet-button" disabled={busy || !amount} onClick={() => void getQuote()}>{busy ? "Working…" : "Get live quote"}</button>
         {quote && <div className="quote-review"><span className="eyebrow">REVIEW SWAP · {quote.router}</span><p>Expected: <strong>{output(quote.outAmount)}</strong> {side === "buy" ? market?.symbol : "SOL"}</p><p>Minimum: {output(quote.otherAmountThreshold)}</p><p>Slippage: {quote.slippageBps / 100}%{quote.feeBps !== null ? ` · Quoted fee: ${quote.feeBps / 100}%` : " · Protocol fees included"}</p>{quote.built && <p>Network: {quote.built.network}</p>}<p className="subtle">Network fees and rent may apply. {Math.max(0, Math.ceil(((quote.expiresAt ?? 0) - now) / 1000))}s to refresh.</p><button className="metal-button" disabled={busy || !wallet.address || !executable || now > (quote.expiresAt ?? 0)} onClick={() => void trade()}>{!wallet.address ? "Connect wallet to trade" : !executable ? "Trading setup required" : now > (quote.expiresAt ?? 0) ? "Refresh quote" : `Approve ${side} in wallet`}</button></div>}

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
+import { OriginalIcon } from '@/components/original-brand';
 import { rilo } from '@/lib/rilo-client';
 import { newRiskAlerts } from '@/lib/security-report';
 import type { SecurityCheck, SecurityReport } from '@/lib/security-report';
@@ -23,6 +24,42 @@ function WalletGraph({ report, busy }: { report: SecurityReport | null; busy: bo
     <figcaption>{points.length ? `Shared SOL senders · ${shown.length} of ${groups.length} groups shown · up to 15 addresses` : 'PUBLIC FUNDING EVIDENCE'}{points.length > 0 && <span> Shared sender ≠ verified bundle</span>}</figcaption>
   </figure>;
 }
+const primaryChecks = [
+  { title: 'Bundle detection', ids: ['bundles', 'funding'], icon: 'link', pending: 'Tracing common funding and purchase timing…' },
+  { title: 'Developer history', ids: ['rugs'], icon: 'warning', pending: 'Reviewing previous launch activity…' },
+  { title: 'Holder concentration', ids: ['concentration'], icon: 'activity', pending: 'Mapping the distribution of supply…' },
+] as const;
+
+function LiveFindings({ report, busy }: { report: SecurityReport | null; busy: boolean }) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    if (!report) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setShown(3); return; }
+    const timers = [0, 220, 440].map((delay, index) => window.setTimeout(() => setShown(index + 1), delay));
+    return () => timers.forEach(timer => window.clearTimeout(timer));
+  }, [report]);
+  const rows = primaryChecks.map((row, index) => {
+    const checks = row.ids.map(id => report?.checks.find(check => check.id === id));
+    const flagged = checks.find(check => check?.state === 'attention');
+    const status = (!report && busy) || (report && index >= shown) ? 'pending' : flagged ? 'flagged' : checks.every(check => check?.state === 'observed') ? 'clear' : 'unavailable';
+    const detail = status === 'pending' ? row.pending : (flagged ?? checks.find(check => check?.state === 'unknown') ?? checks[0])?.detail ?? 'Evidence unavailable.';
+    return { ...row, status, detail };
+  });
+  const scanning = rows.some(row => row.status === 'pending');
+  const flag = [rows[1], rows[0], rows[2]].find(row => row.status === 'flagged');
+  const resolved = rows.filter(row => row.status === 'clear' || row.status === 'flagged').length;
+  const verdict = scanning ? 'TRACING THE LAUNCH' : flag ? flag.title.toUpperCase() + ' FLAG' : resolved === 3 ? 'NO FLAGS IN SAMPLE' : 'PARTIAL COVERAGE';
+  return <>
+    <div className="rt-engine-stats"><div><small>SAMPLED WALLETS</small><strong>{report?.wallets?.sampledWallets ?? '—'}</strong></div><div><small>LINKED SUPPLY</small><strong>{report?.linkedSupplyPercent != null ? report.linkedSupplyPercent.toFixed(2) + '%' : '—'}</strong></div><div><small>CHECKS RESOLVED</small><strong>{resolved}<span> / 3</span></strong></div></div>
+    <div className="rt-engine-checks">{rows.map(row => <div key={row.title} className={'rt-engine-check rt-check-' + row.status}>
+      <span className="rt-engine-check-icon"><OriginalIcon name={row.icon} size={15}/></span>
+      <div><strong>{row.title}</strong><p>{row.detail}</p></div>
+      <span className="rt-engine-check-state"><OriginalIcon name={row.status === 'flagged' ? 'warning' : row.status === 'clear' ? 'check' : 'pulse'} size={13}/><small>{row.status === 'pending' ? 'SCAN' : row.status === 'flagged' ? 'FLAG' : row.status === 'clear' ? 'CLEAR' : 'N/A'}</small></span>
+    </div>)}</div>
+    <div role="status" className={'rt-engine-verdict rt-verdict-' + (scanning ? 'pending' : flag ? 'flagged' : resolved === 3 ? 'clear' : 'unavailable')}><OriginalIcon name={flag && !scanning ? 'warning' : 'pulse'} size={17}/><div><small>RILO SIGNAL</small><strong>{verdict}</strong></div><div className="rt-bars" aria-hidden="true">{Array.from({length:12}, (_, i) => <i key={i} style={{height:5+(i*7)%19}}/>)}</div></div>
+  </>;
+}
+
 function SignalRows({ report, busy }: { report: SecurityReport | null; busy: boolean }) {
   const definitions = [
     { id: 'bundles', title: 'Bundle signals', ids: ['funding', 'bundles'] },
@@ -69,16 +106,13 @@ export function SecurityEngine({ mint, pool }: { mint: string; pool?: string }) 
     void load();
     return () => { abort.abort(); clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility); };
   }, [mint, pool, monitor, revision]);
-  const observed = report?.checks.filter(check => check.id !== 'clean' && check.state !== 'unknown').length ?? 0;
-  const total = report?.checks.filter(check => check.id !== 'clean').length ?? 10;
   return <section className="panel security-engine coin-signal-card" aria-label="Token signal engine" aria-busy={busy}>
     <div className="signal-card-top"><p className="eyebrow">SIGNAL ENGINE</p><span className="signal-source">● READ ONLY</span></div>
     <div className="signal-card-heading"><div><h3>{report?.verdict === 'attention' ? 'Risk signals observed' : busy && !report ? 'Reading the token' : report ? 'Partial analysis' : 'Analysis unavailable'}</h3><p>{report ? `Updated ${new Date(report.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · slot ${report.slot.toLocaleString()}` : 'On-chain controls · public wallet evidence'}</p></div><button className="quiet-button" disabled={busy} onClick={() => setRevision(value => value + 1)}>{busy ? 'Reading…' : 'Refresh'}</button></div>
     {error && <p className="form-error" role="alert">{error}{report ? ' Showing an older snapshot; it may be stale.' : ''}</p>}
     <WalletGraph report={report} busy={busy} />
-    <div className="signal-card-metrics"><div><span>Sampled wallets</span><strong>{report?.wallets ? report.wallets.sampledWallets : '—'}</strong></div><div><span>Linked supply</span><strong>{report?.linkedSupplyPercent != null ? `${report.linkedSupplyPercent.toFixed(2)}%` : '—'}</strong></div><div><span>Checks with data</span><strong>{observed}<small> / {total}</small></strong></div></div>
-    <SignalRows report={report} busy={busy} />
-    <div className="signal-card-footer"><span className="signal-pulse" aria-hidden="true">⌁</span><div><span className="eyebrow">RILO SIGNAL</span><p>{busy ? 'Refreshing available evidence' : report?.verdict === 'attention' ? 'Review the flagged evidence' : 'Coverage remains partial'}</p></div></div>
+    <LiveFindings key={mint + ':' + (pool ?? '')} report={report} busy={busy}/>
+    <details className="security-evidence"><summary>All security checks</summary><SignalRows report={report} busy={busy}/></details>
     <p className="signal-coverage">Sampled evidence · Unknown does not mean safe. Shared funding does not prove a bundle.</p>
     <details className="signal-monitor"><summary>Monitoring & alerts{alerts.length ? ` (${alerts.length})` : ''}</summary><label><input type="checkbox" checked={monitor} onChange={e => setMonitor(e.target.checked)} /> Refresh every 60 seconds while visible</label><p className="subtle">Pauses in hidden tabs. Changes between checks may be missed.</p>{alerts.length > 0 && <div role="status" aria-live="polite">{alerts.map((alert, i) => <p className="form-note" key={`${i}:${alert}`}>{alert}</p>)}</div>}</details>
     {report && <>

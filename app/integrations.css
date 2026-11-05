@@ -96,3 +96,27 @@
 @media(prefers-reduced-motion:reduce){.graph-empty.is-reading circle{animation:none}}
 
 .terminal{scroll-margin-top:110px}
+
+/* Holder distribution */
+#rt .holder-card{margin:18px 0;border:1px solid #38383c;border-radius:16px;overflow:hidden;background:linear-gradient(140deg,#202023 0%,#101012 48%,#111113 100%);color:#eeeeef}
+#rt .holder-card summary{display:flex;align-items:center;gap:12px;padding:16px;cursor:pointer;list-style:none}
+#rt .holder-card summary::-webkit-details-marker{display:none}
+.holder-mark{display:grid;place-items:center;width:32px;height:32px;border-radius:9px;border:1px solid #58585c;background:linear-gradient(155deg,#444449,#151517);color:#eee}
+.holder-chevron{margin-left:auto;transition:transform .18s}
+.holder-card[open] .holder-chevron{transform:rotate(180deg)}
+.holder-overview{padding:8px 18px 19px}
+.holder-overview small,.holder-rank,.holder-ranking strong,.holder-address{font-family:ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.holder-overview small{font-size:10px;letter-spacing:.11em;color:#b6b6bf}
+#rt .holder-overview strong{display:block;font-size:clamp(30px,6vw,44px);font-weight:500;letter-spacing:-.05em;line-height:1.25}
+.holder-strip,.holder-track{display:flex;overflow:hidden;background:#303034;border-radius:8px}
+.holder-strip{height:8px;margin-top:10px}
+.holder-strip i{background:linear-gradient(#eee,#93939c);box-shadow:inset -1px 0 #222}
+#rt .holder-ranking{margin:0;padding:0 16px;list-style:none}
+#rt .holder-ranking a{display:grid;align-items:center;grid-template-columns:24px minmax(0,1fr) auto;gap:4px 9px;padding:10px 4px;border-top:1px solid #ffffff13;text-decoration:none;color:#e1e1e6}
+#rt .holder-ranking a:hover,#rt .holder-ranking a:focus-visible{background:#ffffff09}
+.holder-rank{grid-row:span 2;font-size:11px;color:#92929c}
+.holder-address{font-size:13px}.holder-address small{color:#93939d}
+#rt .holder-ranking strong{font-size:14px;font-weight:500}
+.holder-track{grid-column:2/-1;height:3px}.holder-track i{background:#a5a5b0}
+.holder-ranking li:first-child .holder-track i{background:linear-gradient(90deg,#81818c,#e3e3e8)}
+#rt .holder-note{font-size:11px;line-height:1.5;color:#aaaab3;margin:10px 18px 16px}

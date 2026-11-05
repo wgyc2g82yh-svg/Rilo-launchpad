@@ -99,15 +99,28 @@ export function SecurityEngine({ mint, pool }: { mint: string; pool?: string }) 
     void load();
     return () => { abort.abort(); clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility); };
   }, [mint, pool, monitor, revision]);
+  const holders = report?.topHolders ?? [];
+  const combined = holders.every(holder => holder.share != null) ? Math.min(100,holders.reduce((sum,holder) => sum + (holder.share ?? 0),0)) : null;
   return <section className="panel security-engine coin-signal-card" aria-label="Token signal engine" aria-busy={busy}>
     <div className="signal-card-top"><p className="eyebrow">SIGNAL ENGINE</p><span className="signal-source">{busy ? '● CHECKING' : error ? 'CHECK FAILED' : monitor ? '● AUTO-CHECK ON' : 'PAUSED'}</span></div>
     <div className="signal-card-heading"><div><h3>{report?.verdict === 'attention' ? 'Risk signals observed' : busy && !report ? 'Reading the token' : report ? 'Partial analysis' : 'Analysis unavailable'}</h3><p>{report ? `Updated ${new Date(report.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · slot ${report.slot.toLocaleString()}` : 'On-chain controls · public wallet evidence'}</p></div><button className="quiet-button" disabled={busy} onClick={() => setRevision(value => value + 1)}>{busy ? 'Reading…' : 'Refresh'}</button></div>
     {error && <p className="form-error" role="alert">{error}{report ? ' Showing an older snapshot; it may be stale.' : ''}</p>}
     <WalletGraph report={report} />
     <LiveFindings key={mint + ':' + (pool ?? '')} report={report} busy={busy}/>
-    <details className="security-evidence"><summary>Top 10 holders</summary>
-      <p className="subtle">Owners ranked by their combined balances in the 20 largest token accounts. Pools and exchanges may appear.</p>
-      {report?.topHolders?.length ? <ol>{report.topHolders.map(holder => <li key={holder.wallet}><a href={'https://solscan.io/account/' + holder.wallet} target="_blank" rel="noopener noreferrer">{short(holder.wallet)}</a> · <strong>{holder.share == null ? 'Share unavailable' : holder.share.toFixed(2) + '%'}</strong></li>)}</ol> : <p className="subtle">{busy ? 'Checking holder balances…' : 'Holder balances unavailable.'}</p>}
+    <details className="holder-card">
+      <summary><span className="holder-mark" aria-hidden="true">▥</span><strong>Top 10 holders</strong><span className="holder-chevron" aria-hidden="true">⌄</span></summary>
+      {holders.length ? <>
+        <div className="holder-overview"><small>SUPPLY HELD BY LISTED WALLETS</small><strong>{combined == null ? '—' : combined.toFixed(2) + '%'}</strong>
+          <div className="holder-strip" aria-hidden="true">{holders.map((holder,i) => <i key={holder.wallet} style={{width:(holder.share ?? 0)+'%', opacity:1-i*.065}}/>)}</div>
+        </div>
+        <ol className="holder-ranking">{holders.map((holder,i) => <li key={holder.wallet}>
+          <a href={'https://solscan.io/account/' + holder.wallet} target="_blank" rel="noopener noreferrer" aria-label={'View wallet '+holder.wallet+' on Solscan'}>
+            <span className="holder-rank">{String(i+1).padStart(2,'0')}</span><span className="holder-address">{short(holder.wallet)} <small aria-hidden="true">↗</small></span>
+            <strong>{holder.share == null ? '—' : holder.share.toFixed(2)+'%'}</strong>
+            <span className="holder-track" aria-hidden="true"><i style={{width:(holder.share ?? 0)+'%'}}/></span>
+          </a></li>)}</ol>
+      </> : <p className="holder-note">{busy ? 'Checking holder balances…' : 'Holder balances unavailable.'}</p>}
+      <p className="holder-note">Based on the 20 largest token accounts. One wallet can own several accounts. Pools and exchanges are included.</p>
     </details>
     <details className="security-evidence"><summary>All security checks</summary><SignalRows report={report} busy={busy}/></details>
     <p className="signal-coverage">Sampled evidence · Unknown does not mean safe. Shared funding does not prove a bundle.</p>

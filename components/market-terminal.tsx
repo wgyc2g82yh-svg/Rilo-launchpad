@@ -1,4 +1,5 @@
 "use client";
+import { SecurityEngine } from "@/components/security-engine";
 import { useEffect, useRef, useState } from "react";
 import { fromUnits, SOL_MINT, toUnits } from "@/lib/integration-types";
 import type { BuiltTransaction, Market, MarketResponse, Order, PoolDetails } from "@/lib/integration-types";
@@ -77,6 +78,7 @@ export function MarketTerminal({ mint, decimals, onClose }: { mint: string; deci
       </aside></div>
     <div className="panel creator-history"><div className="panel-heading"><h3>Creator & launch history</h3><span className="badge">ON-CHAIN RECORDS</span></div>{pool ? <><p className="address subtle">Verified Meteora pool creator: {pool.creator}</p><p className="subtle">{pool.graduated ? "Graduated to a DEX" : `${(pool.progress * 100).toFixed(1)}% of the curve’s graduation reserve`} · Creator fee share: {pool.creatorFeePercent}% of distributable trading fees.</p><p className="subtle">{pool.historyAvailable ? `${pool.history.length} returned Meteora launches by this creator.` : "Creator history is temporarily unavailable."} These records do not establish intent or rug history.</p><div className="creator-launch-list">{pool.history.slice(0,8).map(item => <span className="mono" key={item.pool}>{item.mint.slice(0,6)}…{item.mint.slice(-4)} · {item.graduated ? "Graduated" : "On curve"}</span>)}</div></> : <p className="subtle">{poolError || "No verified Meteora creator record was returned. History on other launch programs remains outside this integration’s coverage."}</p>}</div>
     {market && <LiquidityStatus key={`${mint}:${market.pool}`} mint={mint} pool={market.pool} />}
+    <SecurityEngine key={`${mint}:${market?.pool ?? ""}`} mint={mint} pool={market?.pool} />
     <WalletIntelligence key={mint} mint={mint} />
   </section>;
 }

@@ -1,4 +1,5 @@
 import "server-only";
+import { rugcheckReport } from "@/lib/rugcheck-service";
 import { tokenImageUrl } from "@/lib/token-image";
 import { CHART_INTERVALS, isChartInterval } from "@/lib/chart-options";
 import { isSolanaAddress } from "@/lib/token-analysis";
@@ -24,7 +25,7 @@ function parseMarkets(value: unknown, mint?: string): Market[] {
     const token = included.get(tokenId) ?? {};
     const volume = a.volume_usd as Record<string, unknown> | undefined;
     const change = a.price_change_percentage as Record<string, unknown> | undefined;
-    return [{ pool: String(a.address), mint: address, name: String(token.name || a.name || "Token").slice(0, 100), symbol: String(token.symbol || String(a.name || "TOKEN").split(" / ")[tokenSide === "base" ? 0 : 1] || "TOKEN").slice(0, 20), imageUrl: tokenImageUrl(token.image_url), price: num(a[`${tokenSide}_token_price_usd`]), volume24h: num(volume?.h24), liquidity: num(a.reserve_in_usd), change24h: tokenSide === "base" ? num(change?.h24) : null, createdAt: typeof a.pool_created_at === "string" ? a.pool_created_at : null, decimals: Number.isInteger(token.decimals) ? Number(token.decimals) : null, dex: String(item.relationships?.dex?.data?.id || "DEX").slice(0, 50), tokenSide } satisfies Market];
+    return [{ marketCap: tokenSide === "base" ? num(a.market_cap_usd) : null, pool: String(a.address), mint: address, name: String(token.name || a.name || "Token").slice(0, 100), symbol: String(token.symbol || String(a.name || "TOKEN").split(" / ")[tokenSide === "base" ? 0 : 1] || "TOKEN").slice(0, 20), imageUrl: tokenImageUrl(token.image_url), price: num(a[`${tokenSide}_token_price_usd`]), volume24h: num(volume?.h24), liquidity: num(a.reserve_in_usd), change24h: tokenSide === "base" ? num(change?.h24) : null, createdAt: typeof a.pool_created_at === "string" ? a.pool_created_at : null, decimals: Number.isInteger(token.decimals) ? Number(token.decimals) : null, dex: String(item.relationships?.dex?.data?.id || "DEX").slice(0, 50), tokenSide } satisfies Market];
   });
 }
 export async function discoverMarkets(mode: string): Promise<MarketResponse> {
@@ -33,7 +34,19 @@ export async function discoverMarkets(mode: string): Promise<MarketResponse> {
 }
 export async function tokenMarket(mint: string): Promise<MarketResponse> {
   if (!isSolanaAddress(mint)) throw new IntegrationError(400, "Invalid token address.");
-  return cached(`token-market:${mint}`, 60_000, async () => ({ markets: parseMarkets(await fetchProvider(`${root()}/networks/solana/tokens/${mint}/pools?include=base_token,quote_token,dex`), mint).sort((a, b) => (b.liquidity ?? 0) - (a.liquidity ?? 0)), observedAt: new Date().toISOString(), source: "GeckoTerminal" }));
+  return cached(`token-market:${mint}`, 60_000, async () => {
+    const [pools, holders, pairs] = await Promise.all([
+      fetchProvider(`${root()}/networks/solana/tokens/${mint}/pools?include=base_token,quote_token,dex`),
+      rugcheckReport(mint).catch(() => null),
+      fetchProvider(`https://api.dexscreener.com/token-pairs/v1/solana/${mint}`).catch(() => null),
+    ]);
+    const report = holders?.report as { mint?: string; totalHolders?: number } | undefined;
+    const count = report?.mint === mint ? report.totalHolders : undefined;
+    const totalHolders = typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
+    const markets = parseMarkets(pools, mint).sort((a,b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
+    const marketCap = Array.isArray(pairs) ? pairs.find(pair => pair?.baseToken?.address === mint && (num(pair.marketCap) ?? 0) > 0)?.marketCap : null;
+    return { markets: markets.map(market => ({ ...market, marketCap: market.marketCap ?? num(marketCap) })), totalHolders, observedAt: new Date().toISOString(), source: "GeckoTerminal · DexScreener · RugCheck" };
+  });
 }
 export async function tokenChart(pool: string, side: string, interval = "5m") {
   if (!isSolanaAddress(pool) || !["base", "quote"].includes(side) || !isChartInterval(interval)) throw new IntegrationError(400, "Choose a valid pool, token side, and chart interval (live, 5m, or 4h).");

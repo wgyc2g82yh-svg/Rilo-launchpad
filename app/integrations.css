@@ -120,3 +120,9 @@
 .holder-track{grid-column:2/-1;height:3px}.holder-track i{background:#a5a5b0}
 .holder-ranking li:first-child .holder-track i{background:linear-gradient(90deg,#81818c,#e3e3e8)}
 #rt .holder-note{font-size:11px;line-height:1.5;color:#aaaab3;margin:10px 18px 16px}
+
+#rt .market-metrics{display:grid;grid-template-columns:auto auto auto auto;align-items:start;justify-content:space-between;gap:6px}
+#rt .metric-toggle{appearance:none;background:transparent;border:0;border-radius:4px;text-align:left;padding:0;color:inherit;font:inherit;cursor:pointer}
+#rt .metric-toggle:focus-visible{outline:1px solid silver;outline-offset:3px}
+@media(max-width:600px){#rt .market-metrics strong{font-size:clamp(12px,3.55vw,18px)}}
+@media(max-width:350px){#rt .market-metrics{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:12px}}

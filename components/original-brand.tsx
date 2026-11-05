@@ -101,7 +101,7 @@ function Background() {
   return <div className="rt-background" aria-hidden="true"/>;
 }
 
-function Network({ danger = false }: { danger?: boolean }) {
+export function Network({ danger = false }: { danger?: boolean }) {
   const nodes = [
     [43,72],[78,38],[125,58],[65,116],[102,151],[33,174],[142,193],
     [189,37],[237,25],[280,51],[326,29],[365,62],[407,94],

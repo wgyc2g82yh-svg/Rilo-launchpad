@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
-import { OriginalIcon } from '@/components/original-brand';
+import { Network, OriginalIcon } from '@/components/original-brand';
 import { rilo } from '@/lib/rilo-client';
 import { newRiskAlerts } from '@/lib/security-report';
 import type { SecurityCheck, SecurityReport } from '@/lib/security-report';
@@ -9,44 +9,14 @@ const short = (value: string) => `${value.slice(0, 5)}…${value.slice(-4)}`;
 function SignalIcon({ kind }: { kind: string }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">{kind === 'bundles' ? <><path d="m10 14 4-4M9 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0M15 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0" /></> : kind === 'concentration' ? <path d="M5 19V9m7 10V4m7 15v-8" /> : kind === 'liquidity' ? <><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2" /></> : kind === 'controls' ? <><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z" /><path d="m8 12 3 3 5-6" /></> : <><path d="m12 3 10 17H2zM12 9v5m0 2v1" /></>}</svg>;
 }
-function WalletGraph({ report, busy }: { report: SecurityReport | null; busy: boolean }) {
-  const groups = report?.wallets?.sharedFunding ?? [];
-  const shown = groups.slice(0, 3);
-  const sources = shown.map(group => group.source);
-  const wallets = [...new Set([...shown.flatMap(group => group.wallets), ...(report?.wallets?.owners ?? []).map(owner => owner.wallet)])].filter(wallet => !sources.includes(wallet)).slice(0, 15 - sources.length);
-  const hubs = sources.map((address, i) => ({ address, x: i === 0 ? 220 : 90, y: i === 0 ? 121 : i === 1 ? 87 : 170, hub: true }));
-  const nodes = wallets.map((address, i) => {
-    const angle = (i + 0.35) * 2 * Math.PI / wallets.length;
-    return { address, x: 220 + 181 * Math.cos(angle), y: 121 + 93 * Math.sin(angle), hub: false };
-  });
-  const points = [...hubs, ...nodes];
-  return <figure className="rt-engine-visual" style={{margin:0}}>
-    <svg className="rt-network rt-network2" viewBox="0 0 440 248" fill="none" role="img" aria-label="Sampled wallets and observed shared SOL funding paths">
-      <path d="M0 62H440M0 124H440M0 186H440M73 0V248M147 0V248M220 0V248M293 0V248M367 0V248" stroke="currentColor" opacity=".08"/>
-      {[78,105].map(radius => <circle key={radius} cx="220" cy="121" r={radius} stroke="currentColor" opacity=".09"/>)}
-      {shown.map((group, i) => group.wallets.map((address, j) => {
-        const to = points.find(item => item.address === address);
-        if (!to) return null;
-        const from = hubs[i];
-        const path = `M${from.x} ${from.y}Q${(from.x+to.x)/2+14} ${(from.y+to.y)/2-19} ${to.x} ${to.y}`;
-        return <g key={group.source + address}><title>{group.source} sent SOL to {address}</title>
-          <path d={path} stroke="currentColor" opacity=".35"/>
-          <path className="rt-packet" d={path} pathLength="100" stroke="currentColor" strokeWidth="2" strokeDasharray="3 97" style={{animationDelay:j * -.27 + 's'}}/>
-        </g>;
-      }))}
-      {points.map(({address,x,y,hub}, i) => <g key={address}><title>{address}</title>
-        <circle className={hub ? 'rt-hub-ring' : 'rt-wallet-halo'} cx={x} cy={y} r={hub ? 24 : 10} stroke="currentColor" strokeOpacity=".35" strokeDasharray={hub ? '9 12 3 16' : undefined} style={{animationDelay:i * -.31 + 's'}}/>
-        {hub && <circle cx={x} cy={y} r="16" fill="#121212" stroke="currentColor" strokeOpacity=".5"/>}
-        <circle cx={x} cy={y} r={hub ? 5 : 3.5} fill="currentColor"/>
-        <text x={x} y={y + (hub ? 34 : 16)} textAnchor="middle" fill="currentColor" opacity=".65" fontFamily="monospace" fontSize="7">{short(address)}</text>
-      </g>)}
-      <path className="rt-net-sweep" d="M5 0H435" stroke="currentColor" opacity=".24"/>
-      <text x="14" y="17" fill="currentColor" fontSize="7" fontFamily="monospace" letterSpacing="1">FUNDING CLUSTER</text>
-      {!points.length && <text x="220" y="125" textAnchor="middle" fill="currentColor" fontSize="11">{busy ? 'Reading wallet evidence…' : 'Wallet evidence unavailable'}</text>}
-    </svg>
-    <figcaption className="rt-engine-legend"><span><i/> FUNDING PATH</span><span><i/> WALLET</span><span>{shown.length ? 'SHARED SOL SENDERS' : 'SAMPLED WALLETS'}</span></figcaption>
-  </figure>;
+function WalletGraph({ report }: { report: SecurityReport | null }) {
+  const flagged = report?.checks.some(check => check.id === 'bundles' && check.state === 'attention');
+  return <div className="rt-engine-visual">
+    <Network danger={flagged}/>
+    <div className="rt-engine-legend"><span><i/> FUNDING PATH</span><span><i/> WALLET</span><span>SUPPLY / HISTORY</span></div>
+  </div>;
 }
+
 const primaryChecks = [
   { title: 'Bundle detection', ids: ['bundles', 'funding'], icon: 'link', pending: 'Tracing common funding and purchase timing…' },
   { title: 'Developer history', ids: ['rugs'], icon: 'warning', pending: 'Reviewing previous launch activity…' },
@@ -133,7 +103,7 @@ export function SecurityEngine({ mint, pool }: { mint: string; pool?: string }) 
     <div className="signal-card-top"><p className="eyebrow">SIGNAL ENGINE</p><span className="signal-source">{busy ? '● CHECKING' : error ? 'CHECK FAILED' : monitor ? '● AUTO-CHECK ON' : 'PAUSED'}</span></div>
     <div className="signal-card-heading"><div><h3>{report?.verdict === 'attention' ? 'Risk signals observed' : busy && !report ? 'Reading the token' : report ? 'Partial analysis' : 'Analysis unavailable'}</h3><p>{report ? `Updated ${new Date(report.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · slot ${report.slot.toLocaleString()}` : 'On-chain controls · public wallet evidence'}</p></div><button className="quiet-button" disabled={busy} onClick={() => setRevision(value => value + 1)}>{busy ? 'Reading…' : 'Refresh'}</button></div>
     {error && <p className="form-error" role="alert">{error}{report ? ' Showing an older snapshot; it may be stale.' : ''}</p>}
-    <WalletGraph report={report} busy={busy} />
+    <WalletGraph report={report} />
     <LiveFindings key={mint + ':' + (pool ?? '')} report={report} busy={busy}/>
     <details className="security-evidence"><summary>Top 10 holders</summary>
       <p className="subtle">Owners ranked by their combined balances in the 20 largest token accounts. Pools and exchanges may appear.</p>

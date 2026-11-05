@@ -58,6 +58,7 @@ function money(value: number | null) { return value === null ? "—" : new Intl.
 export function OriginalIcon({ name, size = 19 }: { name: string; size?: number }) {
   const paths: Record<string, string> = {
     launch: "M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6.05 11A22 22 0 0 1 12 15ZM9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0m1 7v5s3.03-.55 4-2c1.08-1.62 0-5 0-5",
+    home: "M3 10.5 12 3l9 7.5M5 9v12h5v-7h4v7h5V9",
     compass: "m16.5 7.5-3 6-6 3 3-6 6-3ZM21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
     trending: "m3 17 6-6 4 4 8-10m-6 0h6v6",
     pulse: "M2 12h5l3-8 4 16 3-8h5", star: "m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.2-.9L12 3Z",

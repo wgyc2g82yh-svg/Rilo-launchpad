@@ -14,6 +14,8 @@ export function MarketTerminal({ mint, decimals, onClose }: { mint: string; deci
   const wallet = useWallet(), [markets, setMarkets] = useState<Market[]>([]), [market, setMarket] = useState<Market | null>(null), [pool, setPool] = useState<PoolDetails | null>(null), [marketError, setMarketError] = useState(""), [poolError, setPoolError] = useState("");
   const [side, setSide] = useState("buy"), [amount, setAmount] = useState(""), [slippage, setSlippage] = useState("100"), [quote, setQuote] = useState<Quote | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(""), [message, setMessage] = useState(""), [signature, setSignature] = useState(""), [now, setNow] = useState(Date.now());
   const quoteRequest = useRef<AbortController | null>(null);
+  const terminalRef = useRef<HTMLElement | null>(null);
+  useEffect(() => { terminalRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [mint]);
   useEffect(() => {
     const abort = new AbortController();
     let timer: number | undefined;
@@ -65,7 +67,7 @@ export function MarketTerminal({ mint, decimals, onClose }: { mint: string; deci
   }
   const output = (raw: string) => quote?.outputDecimals === null ? `${raw} smallest units` : fromUnits(raw, quote?.outputDecimals ?? 9);
   const executable = Boolean(quote?.built || quote?.order?.transaction && quote.order.ticket);
-  return <section className="terminal"><div className="terminal-heading"><div><p className="eyebrow">TOKEN INTELLIGENCE</p><div className="terminal-token-title"><TokenAvatar imageUrl={market?.imageUrl} symbol={market?.symbol || "?"} large /><h2>{market?.symbol || `${mint.slice(0,6)}…${mint.slice(-4)}`}</h2></div></div><button className="quiet-button" onClick={onClose}>Explore tokens</button></div>
+  return <section className="terminal" ref={terminalRef}><div className="terminal-heading"><div><p className="eyebrow">TOKEN INTELLIGENCE</p><div className="terminal-token-title"><TokenAvatar imageUrl={market?.imageUrl} symbol={market?.symbol || "?"} large /><h2>{market?.symbol || `${mint.slice(0,6)}…${mint.slice(-4)}`}</h2></div></div><button className="quiet-button" onClick={onClose}>Explore tokens</button></div>
     <SecurityEngine mint={mint} pool={market?.pool} />
     <details className="coin-market-details"><summary>Chart & trading</summary><div className="terminal-grid"><div className="panel chart-panel"><div className="market-metrics"><div><span>Price</span><strong>{usd(market?.price ?? null)}</strong></div><div><span>24h volume</span><strong className="white-volume">{usd(market?.volume24h ?? null, true)}</strong></div><div><span>Liquidity</span><strong>{usd(market?.liquidity ?? null, true)}</strong></div></div>{markets.length > 1 && <label className="pool-selector">Market<select value={market?.pool || ""} onChange={e => setMarket(markets.find(item => item.pool === e.target.value) ?? null)}>{markets.map(item => <option key={item.pool} value={item.pool}>{item.dex} · {item.pool.slice(0,6)}… · {usd(item.liquidity, true)}</option>)}</select></label>}
       {market && marketError && <p className="form-note">{marketError} Showing the last successful market snapshot.</p>}

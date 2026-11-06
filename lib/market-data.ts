@@ -13,12 +13,13 @@ import { createReadSnapshots } from "@/lib/read-snapshot";
 
 const snapshots = createReadSnapshots();
 async function marketSnapshot(key: string, ttl: number, load: () => Promise<MarketResponse>): Promise<MarketResponse> {
-  const shared = process.env.GECKO_API_URL ? load : unstable_cache(load, ["market-snapshot-v1", key], { revalidate: Math.ceil(ttl / 1000) });
+  const freshLoad = () => cached(`market-refresh:${key}`, ttl, load);
+  const shared = process.env.GECKO_API_URL ? freshLoad : unstable_cache(freshLoad, ["market-snapshot-v2", key], { revalidate: Math.ceil(ttl / 1000) });
   // A long-idle Next cache can return its old value once while revalidating.
   // Refresh that value before putting it in the per-instance fresh cache.
   const sharedLoad = async () => {
     const value = await shared();
-    return Date.now() - Date.parse(value.observedAt) > 300_000 ? load() : value;
+    return Date.now() - Date.parse(value.observedAt) > ttl ? freshLoad() : value;
   };
   const result = await snapshots.read(key, ttl, sharedLoad);
   const age = Date.now() - Date.parse(result.value.observedAt);
@@ -155,7 +156,7 @@ export async function discoverMarkets(mode: string, page = 1): Promise<MarketRes
 }
 export async function tokenMarket(mint: string): Promise<MarketResponse> {
   if (!isSolanaAddress(mint)) throw new IntegrationError(400, "Invalid token address.");
-  return marketSnapshot(`token-market:${mint}`, 60_000, async () => {
+  return marketSnapshot(`token-market:${mint}`, 30_000, async () => {
     // Token openings use the higher-capacity quote source first. Only ask the
     // constrained discovery provider when it cannot supply an indexed pool.
     const holdersResult = rugcheckReport(mint).catch(() => null);
@@ -167,7 +168,7 @@ export async function tokenMarket(mint: string): Promise<MarketResponse> {
     const totalHolders = typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
     if (pools === null && pairs === null) throw new IntegrationError(502, "Market providers are temporarily unavailable. Try again shortly.");
     const markets = applyQuotes(pools?.length ? pools : pairs ?? [], pairs ?? []).sort((a,b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
-    return { markets, partial: !pairs?.length && (pools === null || pairs === null), totalHolders, observedAt: new Date().toISOString(), source: pairs?.length ? "DexScreener · RugCheck" : "GeckoTerminal · RugCheck" };
+    return { markets, refreshMs: 30_000, partial: !pairs?.length && (pools === null || pairs === null), totalHolders, observedAt: new Date().toISOString(), source: pairs?.length ? "DexScreener · RugCheck" : "GeckoTerminal · RugCheck" };
   });
 }
 export async function tokenChart(pool: string, side: string, interval = "5m") {

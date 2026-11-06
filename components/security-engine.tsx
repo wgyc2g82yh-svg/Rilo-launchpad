@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Network, OriginalIcon } from '@/components/original-brand';
 import { rilo } from '@/lib/rilo-client';
 import { newRiskAlerts } from '@/lib/security-report';
+import type { LiquidityEvidence } from '@/lib/liquidity-evidence';
 import type { SecurityCheck, SecurityReport } from '@/lib/security-report';
 
 const short = (value: string) => `${value.slice(0, 5)}…${value.slice(-4)}`;
@@ -71,13 +72,13 @@ function SignalRows({ report, busy }: { report: SecurityReport | null; busy: boo
   })}</div>;
 }
 
-export function SecurityEngine({ mint, pool }: { mint: string; pool?: string }) {
+export function SecurityEngine({ mint, pool, onLiquidity }: { mint: string; pool?: string; onLiquidity?(evidence: LiquidityEvidence | null, checked: boolean): void }) {
   const [monitor, setMonitor] = useState(true), [report, setReport] = useState<SecurityReport | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(true), [revision, setRevision] = useState(0), [alerts, setAlerts] = useState<string[]>([]);
   const baseline = useRef<{ key: string; report: SecurityReport | null }>({ key: '', report: null });
   useEffect(() => {
     const key = `${mint}:${pool ?? ''}`;
     const abort = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined; let loading = false;
-    if (baseline.current.key !== key) { baseline.current = { key, report: null }; setReport(null); setAlerts([]); }
+    if (baseline.current.key !== key) { baseline.current = { key, report: null }; setReport(null); setAlerts([]); onLiquidity?.(null, false); }
     setError(''); setBusy(true);
     async function load() {
       if (loading || abort.signal.aborted) return;
@@ -91,15 +92,15 @@ export function SecurityEngine({ mint, pool }: { mint: string; pool?: string }) 
           const fresh = newRiskAlerts(baseline.current.report, next);
           if (fresh.length) setAlerts(current => [...fresh.map(check => `${new Date(next.checkedAt).toLocaleTimeString()} · ${check.title}: ${check.detail}`), ...current].slice(0, 10));
         }
-        baseline.current = { key, report: next }; setReport(next); setError('');
-      } catch (e) { if (!abort.signal.aborted) setError(e instanceof Error ? e.message : 'Security checks unavailable.'); }
+        baseline.current = { key, report: next }; setReport(next); setError(''); onLiquidity?.(next.liquidity, true);
+      } catch (e) { if (!abort.signal.aborted) { setError(e instanceof Error ? e.message : 'Security checks unavailable.'); onLiquidity?.(null, true); } }
       finally { loading = false; if (!abort.signal.aborted) { setBusy(false); if (monitor && !document.hidden) timer = setTimeout(load, 60_000); } }
     }
     const onVisibility = () => { if (document.hidden) clearTimeout(timer); else if (monitor || !baseline.current.report) void load(); };
     document.addEventListener('visibilitychange', onVisibility);
     void load();
     return () => { abort.abort(); clearTimeout(timer); document.removeEventListener('visibilitychange', onVisibility); };
-  }, [mint, pool, monitor, revision]);
+  }, [mint, pool, monitor, revision, onLiquidity]);
   const holders = report?.topHolders ?? [];
   const combined = holders.every(holder => holder.share != null) ? Math.min(100,holders.reduce((sum,holder) => sum + (holder.share ?? 0),0)) : null;
   return <section className="panel security-engine coin-signal-card" aria-label="Token signal engine" aria-busy={busy}>

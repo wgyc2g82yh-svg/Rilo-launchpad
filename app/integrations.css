@@ -152,3 +152,11 @@
 .chart-style-controls button:focus-visible { outline: 2px solid #d7dbe5; outline-offset: 2px; }
 .chart-style-controls svg { width: 18px; height: 18px; }
 .native-chart-frame .native-chart-source { position: absolute; top: 8px; left: 10px; z-index: 1; }
+
+.market-update-note { margin: 4px 0 10px; color: #b3a994; font: 10px/1.5 var(--mono); }
+#rt .market-metrics .liquidity-metric-lock { display: flex; align-items: center; gap: 4px; margin: 6px 0 0; font: 8px/1.25 var(--mono); white-space: nowrap; }
+.liquidity-metric-lock svg { width: 12px; height: 12px; flex-shrink: 0; }
+#rt .market-metrics .liquidity-lock-locked { color: #92c8ad; }
+#rt .market-metrics .liquidity-lock-unlocked { color: #d79a9f; }
+#rt .market-metrics .liquidity-lock-partial { color: #ccb27f; }
+#rt .market-metrics .liquidity-lock-unknown,#rt .market-metrics .liquidity-lock-checking { color: #9297a1; }

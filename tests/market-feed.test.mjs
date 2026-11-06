@@ -22,3 +22,11 @@ test('quotes update loaded rows without borrowing volume from another pool or do
  assert.equal(result[0].marketCap,150);assert.equal(result[0].volume24h,10);assert.equal(result[1].marketCap,200);
  assert.deepEqual(applyQuotes(rows,[]),rows);
 });
+test('feed refresh retains the last capitalization during provider gaps and accepts fresh reported caps',()=>{
+ const previous=[market('a','curve',{marketCap:100,marketCapKind:'reported'})];
+ for(const extra of [{marketCap:null,marketCapKind:null},{marketCap:200,marketCapKind:'fdv'}]) {
+  const refreshed=mergeFeed(previous,[market('a','destination',extra)],true);
+  assert.equal(refreshed[0].marketCap,100);assert.equal(refreshed[0].marketCapKind,'reported');assert.equal(refreshed[0].pool,'destination');
+ }
+ assert.equal(mergeFeed(previous,[market('a','curve',{marketCap:150,marketCapKind:'reported'})])[0].marketCap,150);
+});

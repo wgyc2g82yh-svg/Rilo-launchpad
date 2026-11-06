@@ -11,7 +11,13 @@ export function capitalization(cap: unknown, fdv: unknown): Pick<Market, "market
   return { marketCap: reported ?? estimate, marketCapKind: reported !== null ? "reported" : estimate !== null ? "fdv" : null };
 }
 export function mergeFeed(previous: Market[], incoming: Market[], prepend = false): Market[] {
-  const updates = new Map(incoming.map(market => [market.mint, market]));
+  const prior = new Map(previous.map(market => [market.mint, market]));
+  const updates = new Map(incoming.map(market => {
+    const old = prior.get(market.mint);
+    // Provider gaps must not erase the last known capitalization on each refresh.
+    const keepCap = old?.marketCap != null && (market.marketCap == null || old.marketCapKind === "reported" && market.marketCapKind !== "reported");
+    return [market.mint, keepCap ? { ...market, marketCap: old.marketCap, marketCapKind: old.marketCapKind } : market];
+  }));
   const order = prepend ? [...incoming, ...previous] : [...previous, ...incoming];
   const seen = new Set<string>();
   return order.filter(market => { if (seen.has(market.mint)) return false; seen.add(market.mint); return true; }).map(market => updates.get(market.mint) ?? market).slice(0, 400);

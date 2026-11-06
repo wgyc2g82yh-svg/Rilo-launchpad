@@ -11,19 +11,28 @@ import { fromUnits } from "@/lib/integration-types";
 type Curve = { creatorFeePercent: number; creationFeeLamports: string; graduationLamports: string; decimals: number; supplyRaw: string; permanentlyLockedLiquidityPercent: number };
 export function LaunchActions({ draft }: { draft: LaunchDraft }) {
   const wallet = useWallet(), mintKey = useRef<Keypair | null>(null);
+  const revision = useRef(0);
+  const [now, setNow] = useState(Date.now());
   const [built, setBuilt] = useState<BuiltTransaction | null>(null), [curve, setCurve] = useState<Curve | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState(""), [message, setMessage] = useState(""), [signature, setSignature] = useState("");
   useEffect(() => { const abort = new AbortController(); rilo<Curve>("curve", undefined, abort.signal).then(setCurve).catch(() => {}); return () => abort.abort(); }, []);
-  useEffect(() => { setBuilt(null); mintKey.current = null; }, [wallet.address, draft]);
+  useEffect(() => { revision.current++; setBuilt(null); mintKey.current = null; setMessage(""); return () => { revision.current++; }; }, [wallet.address, draft]);
+  useEffect(() => { if (!built) return; setNow(Date.now()); const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, [built]);
   async function prepare() {
-    setBusy(true); setError(""); setMessage("");
+    const currentRevision = revision.current;
+    setBuilt(null); setBusy(true); setError(""); setMessage("");
     try {
       const provider = phantomProvider(); if (!wallet.address || !provider?.signMessage) throw new Error("Connect Phantom to authorize this token profile.");
       const key = mintKey.current ?? Keypair.generate(); mintKey.current = key;
       const challenge = await rilo<{ ticket: string; message: string }>("launch/challenge", { wallet: wallet.address, mint: key.publicKey.toBase58(), profile: draft });
+      if (currentRevision !== revision.current) return;
+      if (provider.publicKey?.toString() !== wallet.address) throw new Error("The wallet changed. Connect the creator wallet and prepare again.");
       setMessage("Approve the profile authorization message in Phantom.");
       const signed = await provider.signMessage(new TextEncoder().encode(challenge.message), "utf8");
+      if (currentRevision !== revision.current) return;
       setMessage("Storing metadata and simulating your launch…");
-      const result = await rilo<BuiltTransaction>("launch/prepare", { ticket: challenge.ticket, signature: bs58.encode(signed.signature), profile: draft }); setBuilt(result); setMessage("");
+      const result = await rilo<BuiltTransaction>("launch/prepare", { ticket: challenge.ticket, signature: bs58.encode(signed.signature), profile: draft });
+      if (currentRevision !== revision.current) return;
+      setBuilt(result); setMessage("");
     } catch (e) { setError(e instanceof Error ? e.message : "The launch could not be prepared."); setMessage(""); } finally { setBusy(false); }
   }
   async function launch() {
@@ -37,6 +46,6 @@ export function LaunchActions({ draft }: { draft: LaunchDraft }) {
   return <div className="launch-actions"><h3>Fair-launch curve</h3>{curve ? <dl><div><dt>Supply</dt><dd>{fromUnits(curve.supplyRaw, curve.decimals)}</dd></div><div><dt>Graduation reserve</dt><dd>{fromUnits(curve.graduationLamports, 9)} SOL</dd></div><div><dt>Creation fee</dt><dd>{fromUnits(curve.creationFeeLamports, 9)} SOL + rent and network fees</dd></div><div><dt>Creator rebate</dt><dd>{curve.creatorFeePercent}% of distributable trading fees</dd></div><div><dt>Graduated liquidity</dt><dd>{curve.permanentlyLockedLiquidityPercent}% permanently locked</dd></div></dl> : <p className="subtle">The platform curve and metadata storage must be activated before a launch can be prepared.</p>}
     {built && <div className="form-note"><p>{built.summary}</p><p>Network: <strong>{built.network}</strong> · Estimated network fee: {built.networkFeeLamports ? `${fromUnits(built.networkFeeLamports, 9)} SOL` : "Unavailable"}. Rent and protocol costs are additional; review them in Phantom.</p><p className="address">Mint: {built.mint}</p></div>}
     {error && <p className="form-error" role="alert">{error}</p>}{message && <p className="form-note" role="status">{message}</p>}{signature && <p className="address subtle">Transaction: {signature}</p>}
-    {built ? <button className="metal-button" disabled={busy || !wallet.address} onClick={() => void launch()}>{busy ? "Awaiting approval…" : "Approve launch in wallet"}</button> : <button className="metal-button" disabled={busy || !curve || !wallet.address || Boolean(signature)} onClick={() => void prepare()}>{busy ? "Preparing…" : !wallet.address ? "Connect wallet to launch" : "Prepare launch"}</button>}
+    {built ? <button className="metal-button" disabled={busy || !wallet.address} onClick={() => void (now >= built.expiresAt ? prepare() : launch())}>{busy ? "Awaiting approval…" : now >= built.expiresAt ? "Prepare fresh launch" : "Approve launch in wallet"}</button> : <button className="metal-button" disabled={busy || !curve || !wallet.address || Boolean(signature)} onClick={() => void prepare()}>{busy ? "Preparing…" : !wallet.address ? "Connect wallet to launch" : "Prepare launch"}</button>}
   </div>;
 }

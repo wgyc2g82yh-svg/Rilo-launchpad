@@ -135,16 +135,16 @@ export async function tokenMarket(mint: string): Promise<MarketResponse> {
   if (!isSolanaAddress(mint)) throw new IntegrationError(400, "Invalid token address.");
   return cached(`token-market:${mint}`, 60_000, async () => {
     const [pools, holders, pairs] = await Promise.all([
-      marketProvider(`${root()}/networks/solana/tokens/${mint}/pools?include=base_token,quote_token,dex`),
+      marketProvider(`${root()}/networks/solana/tokens/${mint}/pools?include=base_token,quote_token,dex`).then(value => parseMarkets(value, mint)).catch(() => null),
       rugcheckReport(mint).catch(() => null),
-      fetchProvider(`https://api.dexscreener.com/token-pairs/v1/solana/${mint}`).catch(() => null),
+      marketQuotes([mint]).catch(() => null),
     ]);
     const report = holders?.report as { mint?: string; totalHolders?: number } | undefined;
     const count = report?.mint === mint ? report.totalHolders : undefined;
     const totalHolders = typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
-    const markets = parseMarkets(pools, mint).sort((a,b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
-    const marketCap = Array.isArray(pairs) ? pairs.find(pair => pair?.baseToken?.address === mint && (num(pair.marketCap) ?? 0) > 0)?.marketCap : null;
-    return { markets: markets.map(market => ({ ...market, ...((num(marketCap) ?? 0) > 0 && market.marketCapKind !== "reported" ? capitalization(marketCap, null) : {}) })), totalHolders, observedAt: new Date().toISOString(), source: "GeckoTerminal · DexScreener · RugCheck" };
+    if (pools === null && pairs === null) throw new IntegrationError(502, "Market providers are temporarily unavailable. Try again shortly.");
+    const markets = applyQuotes(pools?.length ? pools : pairs ?? [], pairs ?? []).sort((a,b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
+    return { markets, partial: pools === null || pairs === null, totalHolders, observedAt: new Date().toISOString(), source: "GeckoTerminal · DexScreener · RugCheck" };
   });
 }
 export async function tokenChart(pool: string, side: string, interval = "5m") {

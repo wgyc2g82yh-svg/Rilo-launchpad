@@ -38,3 +38,10 @@ test('draft validates ticker, URLs, X handles, description and image types', () 
   for (const change of [{ ticker: 'rilo' }, { website: 'javascript:alert(1)' }, { x: 'name@bad' }, { description: 'a'.repeat(501) }, { image: 'data:image/svg+xml;base64,PHN2Zz4=' }]) assert.ok(validateDraft({ ...valid, ...change }).length > 0);
   assert.deepEqual(readDraft({ name: 'Rilo', ticker: 3, unexpected: true }), { ...EMPTY_DRAFT, name: 'Rilo' });
 });
+test('draft rejects names beyond on-chain UTF-8 limits before wallet authorization', () => {
+ const draft={...EMPTY_DRAFT,ticker:'TEST'};
+ assert.deepEqual(validateDraft({...draft,name:'😀'.repeat(8)}),[]);
+ assert.ok(validateDraft({...draft,name:'😀'.repeat(9)}).some(message=>message.includes('UTF-8')));
+ assert.deepEqual(validateDraft({...draft,name:'é'.repeat(16)}),[]);
+ assert.ok(validateDraft({...draft,name:'é'.repeat(17)}).length);
+});

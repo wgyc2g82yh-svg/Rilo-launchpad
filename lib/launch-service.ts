@@ -12,7 +12,6 @@ type ProfileTicket = { kind: "profile"; wallet: string; mint: string; profileHas
 function profile(value: unknown) {
   const draft = readDraft(value); draft.name = draft.name.trim(); draft.ticker = draft.ticker.trim();
   const errors = validateDraft(draft);
-  if (new TextEncoder().encode(draft.name).length > 32) errors.push("Token name must fit within 32 UTF-8 bytes.");
   if (errors.length) throw new IntegrationError(400, errors[0]);
   return draft;
 }

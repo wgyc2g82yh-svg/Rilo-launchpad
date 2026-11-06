@@ -5,6 +5,7 @@ export const DRAFT_KEY = "rilo-launch-draft";
 export function validateDraft(draft: LaunchDraft): string[] {
   const errors: string[] = [];
   if (!draft.name.trim() || draft.name.trim().length > 32) errors.push("Enter a token name of 1–32 characters.");
+  if (new TextEncoder().encode(draft.name.trim()).length > 32) errors.push("Token name must fit within 32 UTF-8 bytes. Emoji and accented characters may use multiple bytes.");
   if (!/^[A-Z0-9]{2,10}$/.test(draft.ticker)) errors.push("Ticker must contain 2–10 uppercase letters or numbers.");
   if (draft.description.length > 500) errors.push("Description must be 500 characters or fewer.");
   if (draft.website) {

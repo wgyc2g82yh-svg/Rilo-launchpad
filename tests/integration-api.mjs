@@ -12,11 +12,13 @@ const signer=Keypair.generate(),receiver=Keypair.generate(),secret='test-only-si
 const signature=bs58.encode(new Uint8Array(64).fill(3));
 const hash=value=>createHash('sha256').update(value).digest('hex');
 function ticket(value){const data=Buffer.from(JSON.stringify(value)).toString('base64url');return `${data}.${createHmac('sha256',secret).update(data).digest('base64url')}`;}
-let sent=0,executed=0,failMigration=false;
+let sent=0,executed=0,failMigration=false,failTrending=false,failTokenPools=false;
 const chartRequests=[], discoveryPages=[];
 const fixture=createServer(async(request,response)=>{
   const url=new URL(request.url,'http://localhost');let result;
   if(request.method==='GET'){
+    if(failTokenPools && url.pathname.includes('/tokens/') && url.pathname.endsWith('/pools')){response.statusCode=503;response.end('{}');return;}
+    if(failTrending && url.pathname.endsWith('/trending_pools')){response.statusCode=429;response.setHeader('Content-Type','application/json');response.end(JSON.stringify({error:'fixture rate limit'}));return;}
     if(url.pathname.endsWith('/order')){
       const wallet=url.searchParams.get('taker');
       const tx=wallet?new VersionedTransaction(new TransactionMessage({payerKey:new PublicKey(wallet),recentBlockhash:mint,instructions:[SystemProgram.transfer({fromPubkey:new PublicKey(wallet),toPubkey:receiver.publicKey,lamports:1})]}).compileToV0Message()):null;
@@ -70,6 +72,14 @@ try{
   const partialBonding=await get('discover?mode=bonding&page=2');assert.equal(partialBonding.status,200);assert.equal(partialBonding.body.markets[0].mint,token);
   const partialGraduated=await get('discover?mode=graduated&page=2');assert.equal(partialGraduated.status,200);assert.equal(partialGraduated.body.markets[0].pool,receiver.publicKey.toBase58());assert.equal(partialGraduated.body.markets[0].volume24h,null,'unavailable destination metrics never reuse the retired curve');
   failMigration=false;
+  failTrending=true;
+  const survivingBonding=await get('discover?mode=bonding&page=3');assert.equal(survivingBonding.status,200);assert.equal(survivingBonding.body.markets[0].mint,token);assert.equal(survivingBonding.body.partial,true,'one throttled candidate source does not discard verified launches');
+  const survivingGraduated=await get('discover?mode=graduated&page=3');assert.equal(survivingGraduated.status,200);assert.equal(survivingGraduated.body.markets[0].pool,receiver.publicKey.toBase58());
+  failTrending=false;
+  const tokenMarket=await get(`market?mint=${token}`);assert.equal(tokenMarket.status,200);assert.equal(tokenMarket.body.markets[0].marketCap,12345);assert.equal(tokenMarket.body.markets[0].decimals,6);
+  failTokenPools=true;
+  const fallbackMarket=await get(`market?mint=${extendedMint}`);assert.equal(fallbackMarket.status,200);assert.equal(fallbackMarket.body.partial,true);assert.equal(fallbackMarket.body.markets[0].mint,extendedMint);assert.equal(fallbackMarket.body.markets[0].marketCap,67890);assert.equal(fallbackMarket.body.markets[0].pool,receiver.publicKey.toBase58());
+  failTokenPools=false;
   const liquidity=await get(`liquidity?mint=${token}&pool=${mint}`);assert.equal(liquidity.status,200);assert.equal(liquidity.body.status,'partial');assert.equal(liquidity.body.lockedPercent,75);assert.equal(liquidity.body.developerControl,'unverified');
   assert.equal((await get(`liquidity?mint=${token}&pool=${signer.publicKey.toBase58()}`)).body.status,'unknown');
   const security=await get(`security?mint=${token}&pool=${mint}`);assert.equal(security.status,200,JSON.stringify(security));

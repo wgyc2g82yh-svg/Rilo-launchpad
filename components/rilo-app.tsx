@@ -78,6 +78,7 @@ function RiloDashboard() {
 
   function navigate(name: string) {
     if (name === "Watchlist") { setWatchOpen(true); return; }
+    controller.current?.abort(); setBusy(false);
     setTab(name.toLowerCase() as View); setSelectedMint(""); setScan(null); setError("");
     window.scrollTo({top:0,behavior:"instant"});
   }
@@ -101,7 +102,7 @@ function RiloDashboard() {
         {storageNotice && <p className="form-note" role="status">{storageNotice}</p>}
         {busy && <div className="scan-progress" role="status"><span />Reading token data from the chain…</div>}
         {!selectedMint && tab !== "signals" && <div id="rt-launches"><MarketFeed key={tab} search={tokenSearch} onSelect={market => void check(market.mint, market)} /></div>}
-        {selectedMint && <MarketTerminal key={selectedMint} mint={selectedMint} initialMarket={selectedMarket} decimals={scan?.info.decimals} onClose={() => { setSelectedMint(""); setScan(null); setError(""); }} />}
+        {selectedMint && <MarketTerminal key={selectedMint} mint={selectedMint} initialMarket={selectedMarket} decimals={scan?.info.decimals} onClose={() => { controller.current?.abort(); setBusy(false); setSelectedMint(""); setScan(null); setError(""); }} />}
         {scan ? <details className="coin-raw-details"><summary>Token address & raw snapshot</summary><section className="scan-results" aria-label="Token analysis">
           <div className="result-heading"><div><p className="eyebrow">TOKEN ANALYSIS · {scan.program.toUpperCase()}</p><h2 className="mono">{shorten(scan.mint)}</h2></div><div className="result-actions"><button className="quiet-button" onClick={() => void copy()}>{copied ? "Copied" : "Copy address"}</button><button className="icon-button" aria-label={watch.some(item => item.mint === scan.mint) ? "Remove token from watchlist" : "Add token to watchlist"} aria-pressed={watch.some(item => item.mint === scan.mint)} onClick={() => toggleWatch(scan.mint)}><Star filled={watch.some(item => item.mint === scan.mint)} /></button></div></div>
           <p className="coverage-note">Partial coverage. These observations do not establish whether a launch is safe or a rug pull.</p>

@@ -13,10 +13,13 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
   const [loadingMore, setLoadingMore] = useState(false), [nextPage, setNextPage] = useState<number | null>(null);
   const more = useRef<HTMLDivElement>(null), loadMore = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
-    const abort = new AbortController(); let timer: number, retryMs = FEED_REFRESH_MS, busy = false, markets: Market[] = [], next: number | null = 1, highest = 0, refreshPage = 2;
+    const abort = new AbortController(); let timer: number, retryMs = FEED_REFRESH_MS, busy = false, markets: Market[] = [], next: number | null = 1, highest = 0, refreshPage = 2, retryPage: number | null = null;
     setData(null); setLoading(true); setError(""); setNextPage(null);
     async function page(number: number, prepend = false) {
-      const result = await rilo<MarketResponse>(`discover?mode=${mode}&page=${number}`, undefined, abort.signal);
+      let result: MarketResponse;
+      try { result = await rilo<MarketResponse>(`discover?mode=${mode}&page=${number}`, undefined, abort.signal); }
+      catch (error) { retryPage = number; throw error; }
+      if (retryPage === number) retryPage = null;
       if (abort.signal.aborted) return;
       markets = mergeFeed(markets.filter(market => !result.excludedMints?.includes(market.mint)), result.markets, prepend);
       if (number >= highest) { highest = number; next = result.nextPage ?? null; setNextPage(next); }
@@ -32,7 +35,11 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
       if (!busy && !document.hidden) {
         busy = true;
         try {
-          await page(1, true);
+          // Resume a failed pagination request after backoff, even when the error
+          // has paused the scroll observer. Otherwise a feed can stay on page one.
+          const resume = retryPage;
+          if (resume !== null) await page(resume, resume === 1);
+          else await page(1, true);
           // Rotate older pages to update stages without repeatedly downloading the entire feed.
           if (highest > 1) { await page(refreshPage); refreshPage = refreshPage >= highest ? 2 : refreshPage + 1; }
           const mints = markets.map(market => market.mint);
@@ -66,6 +73,7 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
     <div style={{marginBottom:24}}>{search}</div>
     {error && <p className="form-error" role="alert">{error}</p>}{loading && <p className="subtle" role="status">Loading market data…</p>}
     <div className="market-table-wrap">{data && <table className="market-table"><thead><tr><th>Token</th><th>Market cap</th><th>24h volume</th><th>Liquidity</th><th>24h</th></tr></thead><tbody>{data.markets.map(market => <tr key={market.pool}><td><button className="token-select" onClick={() => onSelect(market)}><TokenAvatar imageUrl={market.imageUrl} symbol={market.symbol} /><span><strong>{market.symbol}</strong><small>{market.name}</small></span></button></td><td title={market.marketCapKind === "fdv" ? "Estimated cap: fully diluted valuation; circulating supply is unverified" : "Reported market capitalization"}>{market.marketCapKind === "fdv" ? "~" : ""}{usd(market.marketCap ?? null, true)}</td><td className="white-volume">{usd(market.volume24h, true)}</td><td>{usd(market.liquidity, true)}</td><td>{market.change24h === null ? "—" : `${market.change24h > 0 ? "+" : ""}${market.change24h.toFixed(2)}%`}</td></tr>)}</tbody></table>}</div>
+    {data?.partial && <p className="subtle" role="status">Some launch data is temporarily unavailable. Showing verified results; coverage retries automatically.</p>}
     {data && <div className="feed-pagination" ref={more}><span>{data.markets.length} tokens loaded</span>{nextPage !== null && <button type="button" className="quiet-button" disabled={loadingMore} onClick={() => void loadMore.current()}>{loadingMore ? "Loading more…" : "Load more tokens"}</button>}</div>}
     {data && <p className="data-caption">{data.source} · Observed {new Date(data.observedAt).toLocaleTimeString()} · Refreshes every 20 seconds · ~ Estimated cap (FDV)</p>}
     {data && !data.markets.length && <p className="empty-note">No {feeds.find(feed => feed.mode === mode)?.label.toLowerCase()} found in the current indexed sample.</p>}

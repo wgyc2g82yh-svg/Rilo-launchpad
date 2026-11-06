@@ -4,7 +4,7 @@ import { cached, IntegrationError } from '@/lib/integration-server';
 import { address } from '@/lib/chain-transactions';
 import type { LargestAccount } from '@/lib/token-analysis';
 import type { WalletEvidence } from '@/lib/integration-types';
-import { walletConnections } from '@/lib/wallet-evidence';
+import { walletConnections, tokenTransactionCount } from '@/lib/wallet-evidence';
 import type { ParsedWalletTransaction, WalletTransactionSample } from '@/lib/wallet-evidence';
 export async function analyzeWallets(mint: string): Promise<WalletEvidence> {
   address(mint);
@@ -43,6 +43,6 @@ export async function analyzeWallets(mint: string): Promise<WalletEvidence> {
         } catch { /* Missing evidence never becomes a negative finding. */ }
       }));
     }
-    return { sampledWallets: attempted.size, transactionsRead: new Set(samples.map(item => item.signature)).size, incomplete: true, owners: [...owners].map(([wallet, value]) => ({ wallet, accounts: value.accounts, amountRaw: value.complete ? value.amountRaw.toString() : undefined })), ...walletConnections(mint, samples) };
+    return { sampledWallets: attempted.size, transactionsRead: new Set(samples.map(item => item.signature)).size, tokenTransactionsRead: tokenTransactionCount(mint, samples), incomplete: true, owners: [...owners].map(([wallet, value]) => ({ wallet, accounts: value.accounts, amountRaw: value.complete ? value.amountRaw.toString() : undefined })), ...walletConnections(mint, samples) };
   });
 }

@@ -8,6 +8,7 @@ import { poolForMint } from '@/lib/bonding-curve';
 import { tokenLiquidity } from '@/lib/liquidity-service';
 import { tokenProviderRisk, creatorRiskHistory } from '@/lib/rugcheck-service';
 import { securityReport } from '@/lib/security-report';
+import { scanLaunchActivity } from '@/lib/launch-activity';
 export async function tokenSecurity(mint: string, pool?: string) {
   return cached(`security:${mint}:${pool ?? ''}`, 30_000, async () => {
     const account = await rpc<{ context: { slot: number }; value: { owner: string; data: { parsed?: { type: string; info: MintInfo } } } | null }>('getAccountInfo', [mint, { encoding: 'jsonParsed', commitment: 'confirmed' }]);
@@ -16,12 +17,14 @@ export async function tokenSecurity(mint: string, pool?: string) {
     // History can start as soon as the creator resolves; do not wait for the
     // wallet sample before starting another bounded provider batch.
     const creatorResult = poolForMint(mint).catch(() => null);
-    const [largest, wallets, creator, liquidity, provider, history] = await Promise.all([
+    const providerResult = tokenProviderRisk(mint).catch(() => null);
+    const [largest, wallets, creator, liquidity, provider, history, launch] = await Promise.all([
       rpc<{ value: LargestAccount[] }>('getTokenLargestAccounts', [mint, { commitment: 'confirmed' }]).catch(() => null),
       analyzeWallets(mint).catch(() => null), creatorResult,
-      pool ? tokenLiquidity(mint, pool).catch(() => null) : Promise.resolve(null), tokenProviderRisk(mint).catch(() => null),
-      creatorResult.then(creator => creatorRiskHistory(creator)).catch(() => null),
+      pool ? tokenLiquidity(mint, pool).catch(() => null) : Promise.resolve(null), providerResult,
+      Promise.all([creatorResult, providerResult]).then(([creator, provider]) => creatorRiskHistory(creator, provider)).catch(() => null),
+      cached(`launch-activity:${mint}`, 120_000, () => scanLaunchActivity(mint, rpc)).catch(() => null),
     ]);
-    return securityReport(analyzeMint(mint, account.value.owner, account.value.data.parsed.info, largest?.value ?? null, account.context.slot), wallets, creator, liquidity, provider, history);
+    return securityReport(analyzeMint(mint, account.value.owner, account.value.data.parsed.info, largest?.value ?? null, account.context.slot), wallets, creator, liquidity, provider, history, launch);
   });
 }

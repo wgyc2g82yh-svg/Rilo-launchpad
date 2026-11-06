@@ -5,8 +5,11 @@ export type ParsedWalletTransaction = {
   transaction: { message: { accountKeys?: { pubkey: string; signer: boolean }[]; instructions: Instruction[] } };
 };
 type TokenBalance = { accountIndex: number; mint: string; owner?: string; uiTokenAmount: { amount: string } };
-type Instruction = { program?: string; parsed?: { type: string; info: { source?: string; destination?: string; lamports?: number } } };
+type Instruction = { program?: string; parsed?: { type: string; info: { mint?: string; source?: string; destination?: string; lamports?: number } } };
 export type WalletTransactionSample = { signature: string; wallet: string; tx: ParsedWalletTransaction };
+export function tokenTransactionCount(mint: string, samples: WalletTransactionSample[]): number {
+  return new Set(samples.filter(({ tx }) => tx.meta && !tx.meta.err && Array.isArray(tx.meta.preTokenBalances) && Array.isArray(tx.meta.postTokenBalances) && [...tx.meta.preTokenBalances, ...tx.meta.postTokenBalances].some(row => row.mint === mint && row.owner && /^\d+$/.test(row.uiTokenAmount?.amount ?? ''))).map(sample => sample.signature)).size;
+}
 export function walletConnections(mint: string, samples: WalletTransactionSample[]) {
   const funding = new Map<string, { source: string; wallets: Set<string>; evidence: WalletEvidence['sharedFunding'][number]['evidence'] }>();
   const slots = new Map<number, Map<string, { wallet: string; signature: string; amountRaw: string }>>();

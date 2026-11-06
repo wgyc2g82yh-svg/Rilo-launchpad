@@ -5,6 +5,7 @@ import { MAINNET_GENESIS } from '@/lib/integration-types';
 import type { PoolDetails } from '@/lib/integration-types';
 import { isSolanaAddress } from '@/lib/token-analysis';
 import { providerRisk, developerRiskHistory } from '@/lib/provider-risk';
+import type { ProviderRisk } from '@/lib/provider-risk';
 export async function rugcheckReport(mint: string) {
   if (!isSolanaAddress(mint)) throw new IntegrationError(400, 'Choose a valid token mint.');
   const network = await cached('rugcheck-network', 30_000, () => rpc<string>('getGenesisHash'));
@@ -18,11 +19,15 @@ export async function tokenProviderRisk(mint: string) {
   const result = await rugcheckReport(mint);
   return providerRisk(result.report, mint, result.observedAt);
 }
-export async function creatorRiskHistory(pool: PoolDetails | null) {
-  if (!pool?.historyAvailable) return null;
-  const mints = [...new Set(pool.history.map(item => item.mint))].filter(mint => mint !== pool.mint && isSolanaAddress(mint));
+export async function creatorRiskHistory(pool: PoolDetails | null, provider: ProviderRisk | null = null) {
+  const creator = pool?.creator ?? provider?.creator;
+  if (!creator) return null;
+  const usePool = Boolean(pool?.historyAvailable);
+  const useProvider = provider?.creator === creator && provider.creatorHistoryAvailable;
+  if (!usePool && !useProvider) return null;
+  const mints = [...new Set([...(usePool ? pool!.history.map(item => item.mint) : []), ...(useProvider ? provider!.creatorTokens ?? [] : [])])].filter(mint => mint !== (pool?.mint ?? provider?.mint) && isSolanaAddress(mint));
   // Five distinct other launches, in two bounded batches; no exhaustive-history claim.
   const entries = [];
   for (let i = 0; i < Math.min(mints.length, 5); i += 3) entries.push(...await Promise.all(mints.slice(i, Math.min(i + 3, 5)).map(async mint => ({ mint, report: await tokenProviderRisk(mint).catch(() => null) }))));
-  return developerRiskHistory(pool.creator, mints, entries);
+  return { ...developerRiskHistory(creator, mints, entries), source: usePool ? 'Meteora' as const : 'RugCheck' as const };
 }

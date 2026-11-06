@@ -13,7 +13,13 @@ import { createReadSnapshots } from "@/lib/read-snapshot";
 
 const snapshots = createReadSnapshots();
 async function marketSnapshot(key: string, ttl: number, load: () => Promise<MarketResponse>): Promise<MarketResponse> {
-  const sharedLoad = process.env.GECKO_API_URL ? load : unstable_cache(load, ["market-snapshot-v1", key], { revalidate: Math.ceil(ttl / 1000) });
+  const shared = process.env.GECKO_API_URL ? load : unstable_cache(load, ["market-snapshot-v1", key], { revalidate: Math.ceil(ttl / 1000) });
+  // A long-idle Next cache can return its old value once while revalidating.
+  // Refresh that value before putting it in the per-instance fresh cache.
+  const sharedLoad = async () => {
+    const value = await shared();
+    return Date.now() - Date.parse(value.observedAt) > 300_000 ? load() : value;
+  };
   const result = await snapshots.read(key, ttl, sharedLoad);
   const age = Date.now() - Date.parse(result.value.observedAt);
   if (!Number.isFinite(age) || age > 300_000) throw new IntegrationError(502, "Market data is temporarily unavailable. Refreshing automatically.");
@@ -122,7 +128,11 @@ export async function marketQuotes(mints: string[]): Promise<Market[]> {
       return [{ ...capitalization(pair.marketCap, pair.fdv), pool: pair.pairAddress, mint: pair.baseToken.address, name: String(pair.baseToken.name || "Token"), symbol: String(pair.baseToken.symbol || "TOKEN"), imageUrl: tokenImageUrl(pair.info?.imageUrl), price: num(pair.priceUsd), volume24h: num(pair.volume?.h24), liquidity: num(pair.liquidity?.usd), change24h: num(pair.priceChange?.h24), createdAt: null, decimals: null, dex: String(pair.dexId || "DEX"), tokenSide: "base" as const }];
     }).sort((a, b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
   };
-  return cached(`market-quotes:${addresses.join(",")}`, FEED_REFRESH_MS, process.env.DEXSCREENER_API_URL ? load : unstable_cache(load, ["market-quotes-v1", addresses.join(",")], { revalidate: 20 }));
+  const shared = unstable_cache(async () => ({ markets: await load(), observedAt: Date.now() }), ["market-quotes-v2", addresses.join(",")], { revalidate: 20 });
+  return cached(`market-quotes:${addresses.join(",")}`, FEED_REFRESH_MS, process.env.DEXSCREENER_API_URL ? load : async () => {
+    const value = await shared();
+    return Date.now() - value.observedAt > 60_000 ? load() : value.markets;
+  });
 }
 async function enrichCaps(markets: Market[]) {
   const mints = [...new Set(markets.filter(market => market.marketCapKind !== "reported").map(market => market.mint))];

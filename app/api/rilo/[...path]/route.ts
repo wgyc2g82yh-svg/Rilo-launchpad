@@ -1,6 +1,6 @@
 import { tokenSecurity } from "@/lib/security-service";
 import { NextRequest, NextResponse } from "next/server";
-import { discoverMarkets, tokenChart, tokenMarket } from "@/lib/market-data";
+import { discoverMarkets, marketQuotes, tokenChart, tokenMarket } from "@/lib/market-data";
 import { capacity, IntegrationError, jsonBody, publicError } from "@/lib/integration-server";
 import { executeSwap, swapOrder } from "@/lib/swap-service";
 import { createCurveConfig, claimPoolFees, curveSummary, poolForMint, curveSwap } from "@/lib/bonding-curve";
@@ -21,7 +21,8 @@ async function handle(request: NextRequest) {
       const path = request.nextUrl.pathname.replace(/^\/api\/rilo\//, ""), params = request.nextUrl.searchParams;
       if (request.method === "GET") {
         if (path === "status") return { market: true, trading: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN && process.env.SOLANA_RPC_URL && process.env.ENABLE_MAINNET_TRANSACTIONS === "true"), rpc: Boolean(process.env.SOLANA_RPC_URL), signing: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN), launches: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN && process.env.SOLANA_RPC_URL && process.env.RILO_DBC_CONFIG && process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.SUPABASE_URL), config: process.env.RILO_DBC_CONFIG || null, treasury: process.env.RILO_TREASURY_ADDRESS || null, buybackMint: process.env.RILO_TOKEN_MINT || null, mainnetEnabled: process.env.ENABLE_MAINNET_TRANSACTIONS === "true", origin: process.env.APP_ORIGIN || null };
-        if (path === "discover") return discoverMarkets(params.get("mode") || "trending");
+        if (path === "discover") return discoverMarkets(params.get("mode") || "new", Number(params.get("page") || "1"));
+        if (path === "market/quotes") return { markets: await marketQuotes((params.get("mints") || "").split(",")), observedAt: new Date().toISOString() };
         if (path === "market") return tokenMarket(address(params.get("mint")));
         if (path === "chart") return tokenChart(address(params.get("pool")), params.get("side") || "base", params.get("interval") || "5m");
         if (path === "liquidity") return tokenLiquidity(address(params.get("mint")), address(params.get("pool")));

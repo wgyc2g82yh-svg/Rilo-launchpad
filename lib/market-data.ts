@@ -1,4 +1,5 @@
 import "server-only";
+import { capitalization, applyQuotes, FEED_REFRESH_MS, MAX_DISCOVERY_PAGE } from "@/lib/market-feed-data";
 import { launchStage } from "@/lib/launch-stage";
 import { rugcheckReport } from "@/lib/rugcheck-service";
 import { tokenImageUrl } from "@/lib/token-image";
@@ -26,16 +27,16 @@ function parseMarkets(value: unknown, mint?: string): Market[] {
     const token = included.get(tokenId) ?? {};
     const volume = a.volume_usd as Record<string, unknown> | undefined;
     const change = a.price_change_percentage as Record<string, unknown> | undefined;
-    return [{ marketCap: tokenSide === "base" ? num(a.market_cap_usd) : null, pool: String(a.address), mint: address, name: String(token.name || a.name || "Token").slice(0, 100), symbol: String(token.symbol || String(a.name || "TOKEN").split(" / ")[tokenSide === "base" ? 0 : 1] || "TOKEN").slice(0, 20), imageUrl: tokenImageUrl(token.image_url), price: num(a[`${tokenSide}_token_price_usd`]), volume24h: num(volume?.h24), liquidity: num(a.reserve_in_usd), change24h: tokenSide === "base" ? num(change?.h24) : null, createdAt: typeof a.pool_created_at === "string" ? a.pool_created_at : null, decimals: Number.isInteger(token.decimals) ? Number(token.decimals) : null, dex: String(item.relationships?.dex?.data?.id || "DEX").slice(0, 50), tokenSide } satisfies Market];
+    return [{ ...capitalization(tokenSide === "base" ? a.market_cap_usd : null, tokenSide === "base" ? a.fdv_usd : null), pool: String(a.address), mint: address, name: String(token.name || a.name || "Token").slice(0, 100), symbol: String(token.symbol || String(a.name || "TOKEN").split(" / ")[tokenSide === "base" ? 0 : 1] || "TOKEN").slice(0, 20), imageUrl: tokenImageUrl(token.image_url), price: num(a[`${tokenSide}_token_price_usd`]), volume24h: num(volume?.h24), liquidity: num(a.reserve_in_usd), change24h: tokenSide === "base" ? num(change?.h24) : null, createdAt: typeof a.pool_created_at === "string" ? a.pool_created_at : null, decimals: Number.isInteger(token.decimals) ? Number(token.decimals) : null, dex: String(item.relationships?.dex?.data?.id || "DEX").slice(0, 50), tokenSide } satisfies Market];
   });
 }
-async function indexedMarkets(mode: "new" | "trending"): Promise<Market[]> {
-  return cached(`indexed-markets:${mode}`, 90_000, async () => parseMarkets(await fetchProvider(`${root()}/networks/solana/${mode === "new" ? "new_pools" : "trending_pools"}?include=base_token,quote_token,dex&page=1`)));
+async function indexedMarkets(mode: "new" | "trending", page = 1): Promise<Market[]> {
+  return cached(`indexed-markets:${mode}:${page}`, page === 1 ? FEED_REFRESH_MS : 60_000, async () => parseMarkets(await fetchProvider(`${root()}/networks/solana/${mode === "new" ? "new_pools" : "trending_pools"}?include=base_token,quote_token,dex&page=${page}`)));
 }
-async function launchMarkets() {
-  return cached("launch-markets", 90_000, async () => {
+async function launchMarkets(page: number) {
+  return cached(`launch-markets:${page}`, 60_000, async () => {
     // Bound provider calls: scan recent and active pools, then fetch token-level migration evidence.
-    const candidates = (await Promise.all([indexedMarkets("new"), indexedMarkets("trending")])).flat();
+    const candidates = (await Promise.all([indexedMarkets("new", page), indexedMarkets("trending", page)])).flat();
     const mints = [...new Set(candidates.map(market => market.mint))].slice(0, 40);
     const details = new Map<string, ReturnType<typeof launchStage>>();
     for (let offset = 0; offset < mints.length; offset += 30) {
@@ -60,16 +61,39 @@ async function launchMarkets() {
         if (destination) { graduated.push(destination); seen.add(market.mint); }
       }
     }
-    return { bonding, graduated, observedAt: new Date().toISOString() };
+    return { bonding, graduated, stages: [...details.entries()], hasMore: candidates.length >= 20, observedAt: new Date().toISOString() };
   });
 }
-export async function discoverMarkets(mode: string): Promise<MarketResponse> {
+export async function marketQuotes(mints: string[]): Promise<Market[]> {
+  if (!mints.length || mints.length > 90 || !mints.every(isSolanaAddress)) throw new IntegrationError(400, "Choose between 1 and 90 valid token addresses.");
+  if (mints.length > 30) return (await Promise.all([0, 30, 60].map(offset => mints.slice(offset, offset + 30)).filter(batch => batch.length).map(batch => marketQuotes(batch)))).flat();
+  const addresses = [...new Set(mints)].sort();
+  return cached(`market-quotes:${addresses.join(",")}`, FEED_REFRESH_MS, async () => {
+    const payload = await fetchProvider(`${(process.env.DEXSCREENER_API_URL || "https://api.dexscreener.com").replace(/\/$/, "")}/tokens/v1/solana/${addresses.join(",")}`);
+    if (!Array.isArray(payload)) throw new IntegrationError(502, "Market quotes are unavailable.");
+    return payload.flatMap(pair => {
+      if (pair?.chainId !== "solana" || !addresses.includes(pair.baseToken?.address) || !isSolanaAddress(pair.pairAddress)) return [];
+      return [{ ...capitalization(pair.marketCap, pair.fdv), pool: pair.pairAddress, mint: pair.baseToken.address, name: String(pair.baseToken.name || "Token"), symbol: String(pair.baseToken.symbol || "TOKEN"), imageUrl: tokenImageUrl(pair.info?.imageUrl), price: num(pair.priceUsd), volume24h: num(pair.volume?.h24), liquidity: num(pair.liquidity?.usd), change24h: num(pair.priceChange?.h24), createdAt: null, decimals: null, dex: String(pair.dexId || "DEX"), tokenSide: "base" as const }];
+    }).sort((a, b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
+  });
+}
+async function enrichCaps(markets: Market[]) {
+  const mints = [...new Set(markets.filter(market => market.marketCapKind !== "reported").map(market => market.mint))];
+  const quotes: Market[] = [];
+  for (let offset = 0; offset < mints.length; offset += 30) quotes.push(...await marketQuotes(mints.slice(offset, offset + 30)).catch(() => []));
+  return applyQuotes(markets, quotes);
+}
+export async function discoverMarkets(mode: string, page = 1): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
-  if (mode === "bonding" || mode === "graduated") {
-    const launches = await launchMarkets();
-    return { markets: launches[mode], observedAt: launches.observedAt, source: "GeckoTerminal · recent and active indexed sample · reported launch status" };
-  }
-  return { markets: await indexedMarkets(mode as "new" | "trending"), observedAt: new Date().toISOString(), source: "GeckoTerminal · indexed Solana pools" };
+  if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
+  return cached(`discover:${mode}:${page}`, FEED_REFRESH_MS, async () => {
+    if (mode === "bonding" || mode === "graduated") {
+      const launches = await launchMarkets(page);
+      return { markets: await enrichCaps(launches[mode]), observedAt: launches.observedAt, page, excludedMints: launches.stages.filter(([, status]) => status.stage !== null && status.stage !== mode).map(([mint]) => mint), nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana launches" };
+    }
+    const markets = await indexedMarkets(mode as "new" | "trending", page);
+    return { markets: await enrichCaps(markets), observedAt: new Date().toISOString(), page, nextPage: markets.length >= 20 && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana pools" };
+  });
 }
 export async function tokenMarket(mint: string): Promise<MarketResponse> {
   if (!isSolanaAddress(mint)) throw new IntegrationError(400, "Invalid token address.");
@@ -84,7 +108,7 @@ export async function tokenMarket(mint: string): Promise<MarketResponse> {
     const totalHolders = typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
     const markets = parseMarkets(pools, mint).sort((a,b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
     const marketCap = Array.isArray(pairs) ? pairs.find(pair => pair?.baseToken?.address === mint && (num(pair.marketCap) ?? 0) > 0)?.marketCap : null;
-    return { markets: markets.map(market => ({ ...market, marketCap: market.marketCap ?? num(marketCap) })), totalHolders, observedAt: new Date().toISOString(), source: "GeckoTerminal · DexScreener · RugCheck" };
+    return { markets: markets.map(market => ({ ...market, ...((num(marketCap) ?? 0) > 0 && market.marketCapKind !== "reported" ? capitalization(marketCap, null) : {}) })), totalHolders, observedAt: new Date().toISOString(), source: "GeckoTerminal · DexScreener · RugCheck" };
   });
 }
 export async function tokenChart(pool: string, side: string, interval = "5m") {

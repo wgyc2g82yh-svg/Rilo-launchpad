@@ -13,7 +13,7 @@ const signature=bs58.encode(new Uint8Array(64).fill(3));
 const hash=value=>createHash('sha256').update(value).digest('hex');
 function ticket(value){const data=Buffer.from(JSON.stringify(value)).toString('base64url');return `${data}.${createHmac('sha256',secret).update(data).digest('base64url')}`;}
 let sent=0,executed=0;
-const chartRequests=[];
+const chartRequests=[], discoveryPages=[];
 const fixture=createServer(async(request,response)=>{
   const url=new URL(request.url,'http://localhost');let result;
   if(request.method==='GET'){
@@ -23,9 +23,11 @@ const fixture=createServer(async(request,response)=>{
       result={inputMint:url.searchParams.get('inputMint'),outputMint:url.searchParams.get('outputMint'),inAmount:url.searchParams.get('amount'),outAmount:'900000',otherAmountThreshold:'891000',feeBps:2,feeMint:mint,slippageBps:100,priceImpactPct:'0.1',router:'fixture',requestId:'fixture-order',transaction:tx?Buffer.from(tx.serialize()).toString('base64'):null};
     }else if(url.pathname.endsWith('/report'))result={mint:token,creator:signer.publicKey.toBase58(),rugged:true,risks:[{name:'Fixture risk',level:'danger',description:'Provider warning fixture'}],markets:[{pubkey:mint,mintA:token,mintB:mint,mintLP:token,lp:{lpLocked:75,lpUnlocked:25,lpLockedPct:75}}]};
     else if(url.pathname.includes('/ohlcv/')){chartRequests.push({path:url.pathname,aggregate:url.searchParams.get('aggregate'),side:url.searchParams.get('token')});result={data:{attributes:{ohlcv_list:[[120,1,2,1,2,30],[60,1,1,1,1,20]]}}};}
+    else if(url.pathname.includes('/tokens/v1/solana/')) result=[{chainId:'solana',pairAddress:mint,baseToken:{address:token,name:'Fixture token',symbol:'TEST'},marketCap:12345,volume:{h24:1000},liquidity:{usd:5000}},{chainId:'solana',pairAddress:receiver.publicKey.toBase58(),baseToken:{address:extendedMint},fdv:67890}];
     else if(url.pathname.includes('/tokens/multi/')) result={data:[{id:`solana_${token}`,attributes:{launchpad_details:{completed:false,graduation_percentage:75}}},{id:`solana_${extendedMint}`,attributes:{launchpad_details:{completed:true,graduation_percentage:100,migrated_destination_pool_address:receiver.publicKey.toBase58()}}}]};
     else if(url.pathname.includes('/pools/multi/')) result={data:[{id:`solana_${receiver.publicKey}`,attributes:{address:receiver.publicKey.toBase58(),name:'GRAD / SOL',volume_usd:{h24:'9999'}},relationships:{base_token:{data:{id:`solana_${extendedMint}`}},dex:{data:{id:'destination-dex'}}}}]};
     else result={data:[{id:`solana_${mint}`,attributes:{address:mint,name:'RILO / SOL',base_token_price_usd:'0.01',volume_usd:{h24:'1000'},reserve_in_usd:'5000',price_change_percentage:{h24:'2.5'},pool_created_at:'2026-01-01T00:00:00Z'},relationships:{base_token:{data:{id:`solana_${token}`}},quote_token:{data:{id:`solana_${mint}`}},dex:{data:{id:'test-dex'}}}},{id:`solana_${signer.publicKey}`,attributes:{address:signer.publicKey.toBase58(),name:'GRAD / SOL'},relationships:{base_token:{data:{id:`solana_${extendedMint}`}}}}],included:[{id:`solana_${token}`,attributes:{name:'Fixture token',symbol:'TEST',decimals:6,image_url:'https://example.com/token.png'}}]};
+    if(url.pathname.endsWith('/new_pools') || url.pathname.endsWith('/trending_pools')) discoveryPages.push(url.searchParams.get('page'));
     response.setHeader('Content-Type','application/json');response.end(JSON.stringify(result));return;
   }
   let body='';for await(const chunk of request)body+=chunk;const input=JSON.parse(body);
@@ -48,16 +50,21 @@ const fixture=createServer(async(request,response)=>{
 fixture.listen(0,'127.0.0.1');await once(fixture,'listening');
 const reservation=createServer();reservation.listen(0,'127.0.0.1');await once(reservation,'listening');const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
 const base=`http://127.0.0.1:${port}`,upstream=`http://127.0.0.1:${fixture.address().port}`;
-const child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(port)],{env:{...process.env,SOLANA_RPC_URL:upstream,GECKO_API_URL:upstream,RUGCHECK_API_URL:upstream,JUPITER_API_URL:upstream,JUPITER_API_KEY:'fixture-only',APP_SIGNING_SECRET:secret,APP_ORIGIN:base,ENABLE_MAINNET_TRANSACTIONS:'true'},stdio:['ignore','pipe','pipe']});
+const child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(port)],{env:{...process.env,SOLANA_RPC_URL:upstream,GECKO_API_URL:upstream,DEXSCREENER_API_URL:upstream,RUGCHECK_API_URL:upstream,JUPITER_API_URL:upstream,JUPITER_API_KEY:'fixture-only',APP_SIGNING_SECRET:secret,APP_ORIGIN:base,ENABLE_MAINNET_TRANSACTIONS:'true'},stdio:['ignore','pipe','pipe']});
 let logs='';child.stdout.on('data',chunk=>logs+=chunk);child.stderr.on('data',chunk=>logs+=chunk);
 const get=async(path)=>{const r=await fetch(base+'/api/rilo/'+path);return {status:r.status,body:await r.json()};};
 const post=async(path,body,origin=base)=>{const r=await fetch(base+'/api/rilo/'+path,{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
 try{
   let ready=false;for(let n=0;n<60;n++){try{if((await fetch(base+'/app')).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,200));}assert.ok(ready,logs);
   const feed=await get('discover?mode=trending');assert.equal(feed.status,200);assert.equal(feed.body.markets[0].symbol,'TEST');assert.equal(feed.body.markets[0].volume24h,1000);assert.equal(feed.body.markets[0].imageUrl,'https://example.com/token.png');
+  assert.equal(feed.body.markets[0].marketCap,12345);assert.equal(feed.body.markets[0].marketCapKind,'reported');
+  const secondPage=await get('discover?mode=new&page=2');assert.equal(secondPage.status,200);assert.equal(secondPage.body.page,2);assert.ok(discoveryPages.includes('2'));
+  for(const page of ['0','11','1.5','nope'])assert.equal((await get('discover?mode=new&page='+page)).status,400);
+  const quotes=await get('market/quotes?mints='+token);assert.equal(quotes.status,200);assert.equal(quotes.body.markets[0].marketCap,12345);
+  assert.equal((await get('market/quotes?mints=invalid')).status,400);
   const fresh=await get('discover?mode=new');assert.equal(fresh.status,200);assert.equal(fresh.body.markets.length,2);
   const bonding=await get('discover?mode=bonding');assert.equal(bonding.status,200);assert.deepEqual(bonding.body.markets.map(m=>m.mint),[token]);
-  const graduated=await get('discover?mode=graduated');assert.equal(graduated.status,200);assert.deepEqual(graduated.body.markets.map(m=>m.mint),[extendedMint]);assert.equal(graduated.body.markets[0].pool,receiver.publicKey.toBase58());assert.equal(graduated.body.markets[0].volume24h,9999,'graduated token uses destination pool metrics');
+  const graduated=await get('discover?mode=graduated');assert.equal(graduated.status,200);assert.deepEqual(graduated.body.markets.map(m=>m.mint),[extendedMint]);assert.equal(graduated.body.markets[0].pool,receiver.publicKey.toBase58());assert.equal(graduated.body.markets[0].marketCap,67890);assert.equal(graduated.body.markets[0].marketCapKind,'fdv');assert.equal(graduated.body.markets[0].volume24h,9999,'graduated token uses destination pool metrics');
   const liquidity=await get(`liquidity?mint=${token}&pool=${mint}`);assert.equal(liquidity.status,200);assert.equal(liquidity.body.status,'partial');assert.equal(liquidity.body.lockedPercent,75);assert.equal(liquidity.body.developerControl,'unverified');
   assert.equal((await get(`liquidity?mint=${token}&pool=${signer.publicKey.toBase58()}`)).body.status,'unknown');
   const security=await get(`security?mint=${token}&pool=${mint}`);assert.equal(security.status,200,JSON.stringify(security));

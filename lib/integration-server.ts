@@ -6,7 +6,7 @@ import { rpc, RpcError } from "@/lib/solana-rpc";
 
 export class IntegrationError extends Error {
   status: number;
-  constructor(status: number, message: string) { super(message); this.status = status; }
+  constructor(status: number, message: string, public retryAfterMs?: number) { super(message); this.status = status; }
 }
 export const digest = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 function secret() {
@@ -53,7 +53,11 @@ export async function jsonBody(request: NextRequest, maxBytes = 20_000): Promise
 export async function fetchProvider(url: string, init?: RequestInit): Promise<unknown> {
   try {
     const response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(12_000), headers: { Accept: "application/json", ...init?.headers } });
-    if (!response.ok) throw new IntegrationError(response.status === 429 ? 429 : 502, response.status === 429 ? "The data provider is busy. Try again shortly." : "The service could not complete the request.");
+    if (!response.ok) {
+      const header = response.headers.get("Retry-After");
+      const retryAfterMs = header ? /^\d+$/.test(header) ? Number(header) * 1000 : Date.parse(header) - Date.now() : 60_000;
+      throw new IntegrationError(response.status === 429 ? 429 : 502, response.status === 429 ? "The data provider is busy. Try again shortly." : "The service could not complete the request.", response.status === 429 ? Math.min(300_000, Math.max(10_000, Number.isFinite(retryAfterMs) ? retryAfterMs : 60_000)) : undefined);
+    }
     return await response.json();
   } catch (error) { if (error instanceof IntegrationError) throw error; throw new IntegrationError(502, "The service timed out or could not be reached."); }
 }

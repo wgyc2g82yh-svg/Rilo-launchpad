@@ -9,6 +9,16 @@ import { isSolanaAddress } from "@/lib/token-analysis";
 import { normalizeCandles } from "@/lib/integration-types";
 import type { Market, MarketResponse } from "@/lib/integration-types";
 import { cached, fetchProvider, IntegrationError } from "@/lib/integration-server";
+import { createReadSnapshots } from "@/lib/read-snapshot";
+
+const snapshots = createReadSnapshots();
+async function marketSnapshot(key: string, ttl: number, load: () => Promise<MarketResponse>): Promise<MarketResponse> {
+  const sharedLoad = process.env.GECKO_API_URL ? load : unstable_cache(load, ["market-snapshot-v1", key], { revalidate: Math.ceil(ttl / 1000) });
+  const result = await snapshots.read(key, ttl, sharedLoad);
+  const age = Date.now() - Date.parse(result.value.observedAt);
+  if (!Number.isFinite(age) || age > 300_000) throw new IntegrationError(502, "Market data is temporarily unavailable. Refreshing automatically.");
+  return { ...result.value, stale: result.stale || age > ttl * 2 };
+}
 
 const root = () => (process.env.GECKO_API_URL || "https://api.geckoterminal.com/api/v2").replace(/\/$/, "");
 let providerSlot = 0;
@@ -104,14 +114,15 @@ export async function marketQuotes(mints: string[]): Promise<Market[]> {
   if (!mints.length || mints.length > 90 || !mints.every(isSolanaAddress)) throw new IntegrationError(400, "Choose between 1 and 90 valid token addresses.");
   if (mints.length > 30) return (await Promise.all([0, 30, 60].map(offset => mints.slice(offset, offset + 30)).filter(batch => batch.length).map(batch => marketQuotes(batch)))).flat();
   const addresses = [...new Set(mints)].sort();
-  return cached(`market-quotes:${addresses.join(",")}`, FEED_REFRESH_MS, async () => {
+  const load = async () => {
     const payload = await fetchProvider(`${(process.env.DEXSCREENER_API_URL || "https://api.dexscreener.com").replace(/\/$/, "")}/tokens/v1/solana/${addresses.join(",")}`);
     if (!Array.isArray(payload)) throw new IntegrationError(502, "Market quotes are unavailable.");
     return payload.flatMap(pair => {
       if (pair?.chainId !== "solana" || !addresses.includes(pair.baseToken?.address) || !isSolanaAddress(pair.pairAddress)) return [];
       return [{ ...capitalization(pair.marketCap, pair.fdv), pool: pair.pairAddress, mint: pair.baseToken.address, name: String(pair.baseToken.name || "Token"), symbol: String(pair.baseToken.symbol || "TOKEN"), imageUrl: tokenImageUrl(pair.info?.imageUrl), price: num(pair.priceUsd), volume24h: num(pair.volume?.h24), liquidity: num(pair.liquidity?.usd), change24h: num(pair.priceChange?.h24), createdAt: null, decimals: null, dex: String(pair.dexId || "DEX"), tokenSide: "base" as const }];
     }).sort((a, b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
-  });
+  };
+  return cached(`market-quotes:${addresses.join(",")}`, FEED_REFRESH_MS, process.env.DEXSCREENER_API_URL ? load : unstable_cache(load, ["market-quotes-v1", addresses.join(",")], { revalidate: 20 }));
 }
 async function enrichCaps(markets: Market[]) {
   const mints = [...new Set(markets.filter(market => market.marketCapKind !== "reported").map(market => market.mint))];
@@ -122,7 +133,8 @@ async function enrichCaps(markets: Market[]) {
 export async function discoverMarkets(mode: string, page = 1): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
   if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
-  return cached(`discover:${mode}:${page}`, FEED_REFRESH_MS, async () => {
+  const ttl = mode === "bonding" || mode === "graduated" || page > 1 ? 60_000 : FEED_REFRESH_MS;
+  return marketSnapshot(`discover:${mode}:${page}`, ttl, async () => {
     if (mode === "bonding" || mode === "graduated") {
       const launches = await launchMarkets(page);
       return { markets: await enrichCaps(launches[mode]), partial: launches.partial, observedAt: launches.observedAt, page, excludedMints: launches.stages.filter(([, status]) => status.stage !== null && status.stage !== mode).map(([mint]) => mint), nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana launches" };
@@ -133,18 +145,19 @@ export async function discoverMarkets(mode: string, page = 1): Promise<MarketRes
 }
 export async function tokenMarket(mint: string): Promise<MarketResponse> {
   if (!isSolanaAddress(mint)) throw new IntegrationError(400, "Invalid token address.");
-  return cached(`token-market:${mint}`, 60_000, async () => {
-    const [pools, holders, pairs] = await Promise.all([
-      marketProvider(`${root()}/networks/solana/tokens/${mint}/pools?include=base_token,quote_token,dex`).then(value => parseMarkets(value, mint)).catch(() => null),
-      rugcheckReport(mint).catch(() => null),
-      marketQuotes([mint]).catch(() => null),
-    ]);
+  return marketSnapshot(`token-market:${mint}`, 60_000, async () => {
+    // Token openings use the higher-capacity quote source first. Only ask the
+    // constrained discovery provider when it cannot supply an indexed pool.
+    const holdersResult = rugcheckReport(mint).catch(() => null);
+    const pairs = await marketQuotes([mint]).catch(() => null);
+    const pools = pairs?.length ? null : await marketProvider(`${root()}/networks/solana/tokens/${mint}/pools?include=base_token,quote_token,dex`).then(value => parseMarkets(value, mint)).catch(() => null);
+    const holders = await holdersResult;
     const report = holders?.report as { mint?: string; totalHolders?: number } | undefined;
     const count = report?.mint === mint ? report.totalHolders : undefined;
     const totalHolders = typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
     if (pools === null && pairs === null) throw new IntegrationError(502, "Market providers are temporarily unavailable. Try again shortly.");
     const markets = applyQuotes(pools?.length ? pools : pairs ?? [], pairs ?? []).sort((a,b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
-    return { markets, partial: pools === null || pairs === null, totalHolders, observedAt: new Date().toISOString(), source: "GeckoTerminal · DexScreener · RugCheck" };
+    return { markets, partial: !pairs?.length && (pools === null || pairs === null), totalHolders, observedAt: new Date().toISOString(), source: pairs?.length ? "DexScreener · RugCheck" : "GeckoTerminal · RugCheck" };
   });
 }
 export async function tokenChart(pool: string, side: string, interval = "5m") {

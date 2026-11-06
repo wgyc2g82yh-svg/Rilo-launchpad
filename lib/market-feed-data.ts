@@ -33,3 +33,11 @@ export function applyQuotes(markets: Market[], quotes: Market[]): Market[] {
     };
   });
 }
+
+export function quoteBatch(markets: Market[], offset: number, limit = 90): { mints: string[]; nextOffset: number } {
+  const mints = [...new Set(markets.map(market => market.mint))];
+  if (!mints.length) return { mints: [], nextOffset: 0 };
+  const start = Number.isInteger(offset) && offset >= 0 && offset < mints.length ? offset : 0;
+  const end = Math.min(mints.length, start + Math.max(1, Math.min(90, limit)));
+  return { mints: mints.slice(start, end), nextOffset: end >= mints.length ? 0 : end };
+}

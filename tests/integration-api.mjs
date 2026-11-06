@@ -8,6 +8,7 @@ import bs58 from 'bs58';
 const genesis='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
 const mint='So11111111111111111111111111111111111111112',token='TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const extendedMint='TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+const pastMint=Keypair.generate().publicKey.toBase58(),earlyWallet=Keypair.generate().publicKey.toBase58();
 const signer=Keypair.generate(),receiver=Keypair.generate(),secret='test-only-signing-secret-never-use-in-production';
 const signature=bs58.encode(new Uint8Array(64).fill(3));
 const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -23,7 +24,8 @@ const fixture=createServer(async(request,response)=>{
       const wallet=url.searchParams.get('taker');
       const tx=wallet?new VersionedTransaction(new TransactionMessage({payerKey:new PublicKey(wallet),recentBlockhash:mint,instructions:[SystemProgram.transfer({fromPubkey:new PublicKey(wallet),toPubkey:receiver.publicKey,lamports:1})]}).compileToV0Message()):null;
       result={inputMint:url.searchParams.get('inputMint'),outputMint:url.searchParams.get('outputMint'),inAmount:url.searchParams.get('amount'),outAmount:'900000',otherAmountThreshold:'891000',feeBps:2,feeMint:mint,slippageBps:100,priceImpactPct:'0.1',router:'fixture',requestId:'fixture-order',transaction:tx?Buffer.from(tx.serialize()).toString('base64'):null};
-    }else if(url.pathname.endsWith('/report'))result={mint:token,creator:signer.publicKey.toBase58(),rugged:true,risks:[{name:'Fixture risk',level:'danger',description:'Provider warning fixture'}],markets:[{pubkey:mint,mintA:token,mintB:mint,mintLP:token,lp:{lpLocked:75,lpUnlocked:25,lpLockedPct:75}}]};
+    }else if(url.pathname.endsWith(`/tokens/${pastMint}/report`))result={mint:pastMint,creator:signer.publicKey.toBase58(),rugged:true,risks:[]};
+    else if(url.pathname.endsWith('/report'))result={mint:token,creator:signer.publicKey.toBase58(),rugged:true,creatorTokens:[{mint:pastMint},{mint:extendedMint},{mint:token}],risks:[{name:'Fixture risk',level:'danger',description:'Provider warning fixture'}],markets:[{pubkey:mint,mintA:token,mintB:mint,mintLP:token,lp:{lpLocked:75,lpUnlocked:25,lpLockedPct:75}}]};
     else if(url.pathname.includes('/ohlcv/')){chartRequests.push({path:url.pathname,aggregate:url.searchParams.get('aggregate'),side:url.searchParams.get('token')});result={data:{attributes:{ohlcv_list:[[120,1,2,1,2,30],[60,1,1,1,1,20]]}}};}
     else if(url.pathname.includes('/tokens/v1/solana/')) result=[{chainId:'solana',pairAddress:mint,baseToken:{address:token,name:'Fixture token',symbol:'TEST'},marketCap:12345,volume:{h24:1000},liquidity:{usd:5000}},{chainId:'solana',pairAddress:receiver.publicKey.toBase58(),baseToken:{address:extendedMint},fdv:67890}];
     else if(url.pathname.includes('/tokens/multi/')) result={data:[{id:`solana_${token}`,attributes:{launchpad_details:{completed:false,graduation_percentage:75}}},{id:`solana_${extendedMint}`,attributes:{launchpad_details:{completed:true,graduation_percentage:100,migrated_destination_pool_address:receiver.publicKey.toBase58()}}}]};
@@ -40,10 +42,12 @@ const fixture=createServer(async(request,response)=>{
   else if(input.method==='getAccountInfo')result={context:{slot:101},value:{owner:input.params[0]===extendedMint?extendedMint:token,data:{parsed:{type:'mint',info:{supply:'1000000',decimals:6,mintAuthority:null,freezeAuthority:null,isInitialized:true,...(input.params[0]===extendedMint?{extensions:[{extension:'permanentDelegate',state:{delegate:mint}}]}:{})}}}}};
   else if(input.method==='getTokenLargestAccounts')result={value:[{address:signer.publicKey.toBase58(),amount:'100'},{address:receiver.publicKey.toBase58(),amount:'100'}]};
   else if(input.method==='getMultipleAccounts')result={value:[signer,receiver].map(key=>({data:{parsed:{type:'account',info:{owner:key.publicKey.toBase58(),mint:token,tokenAmount:{amount:'100'}}}}}))};
+  else if(input.method==='getSignaturesForAddress' && input.params[0]===token)result=[{signature:'early-second',slot:100,err:null},{signature:'early-first',slot:100,err:null}];
   else if(input.method==='getSignaturesForAddress')result=[{signature:'missing-'+input.params[0],err:null},{signature:input.params[0],err:null}];
   else if(input.method==='getTransaction'){
     const owner=input.params[0];
-    if(owner.startsWith('missing-'))result=null;else result={slot:100,meta:{err:null,preTokenBalances:[],postTokenBalances:[{accountIndex:0,mint:token,owner,uiTokenAmount:{amount:'100'}}]},transaction:{message:{accountKeys:[{pubkey:owner,signer:true}],instructions:[{program:'system',parsed:{type:'transfer',info:{source:mint,destination:owner,lamports:100000}}}]}}};
+    if(owner.startsWith('early-')){const wallet=owner==='early-first'?earlyWallet:receiver.publicKey.toBase58();result={slot:100,meta:{err:null,preTokenBalances:[],postTokenBalances:[{accountIndex:0,mint:token,owner:wallet,uiTokenAmount:{amount:'100'}}]},transaction:{message:{accountKeys:[{pubkey:wallet,signer:true}],instructions:owner==='early-first'?[{program:'spl-token',parsed:{type:'initializeMint2',info:{mint:token}}}]:[]}}};}
+    else if(owner.startsWith('missing-'))result=null;else result={slot:100,meta:{err:null,preTokenBalances:[],postTokenBalances:[{accountIndex:0,mint:token,owner,uiTokenAmount:{amount:'100'}}]},transaction:{message:{accountKeys:[{pubkey:owner,signer:true}],instructions:[{program:'system',parsed:{type:'transfer',info:{source:mint,destination:owner,lamports:100000}}}]}}};
   }
   else if(input.method==='sendTransaction'){sent++;result=signature;}
   else if(input.method==='getSignatureStatuses')result={value:[{err:null,confirmationStatus:'confirmed'}]};
@@ -83,6 +87,8 @@ try{
   const liquidity=await get(`liquidity?mint=${token}&pool=${mint}`);assert.equal(liquidity.status,200);assert.equal(liquidity.body.status,'partial');assert.equal(liquidity.body.lockedPercent,75);assert.equal(liquidity.body.developerControl,'unverified');
   assert.equal((await get(`liquidity?mint=${token}&pool=${signer.publicKey.toBase58()}`)).body.status,'unknown');
   const security=await get(`security?mint=${token}&pool=${mint}`);assert.equal(security.status,200,JSON.stringify(security));
+  assert.equal(security.body.developer.wallet,signer.publicKey.toBase58());assert.equal(security.body.developer.source,'RugCheck');assert.equal(security.body.history.source,'RugCheck');assert.equal(security.body.history.totalKnown,2);assert.equal(security.body.history.checked,1);assert.equal(security.body.checks.find(c=>c.id==='rugs').state,'attention');
+  assert.equal(security.body.launch.window,'launch');assert.equal(security.body.launch.sampledWallets,2);assert.ok(security.body.launch.accumulation[0].wallets.includes(earlyWallet),'early participants are examined even after exiting current holders');assert.equal(security.body.launch.initializationSignature,'early-first');
   assert.equal(security.body.provider.rugged,true);assert.equal(security.body.checks.find(c=>c.id==='provider').state,'attention');
   assert.equal(security.body.wallets.sharedFunding.length,1);assert.equal(security.body.wallets.accumulation.length,1);
   assert.equal(security.body.checks.find(c=>c.id==='bundles').state,'attention');assert.equal(security.body.checks.find(c=>c.id==='clean').state,'unknown');

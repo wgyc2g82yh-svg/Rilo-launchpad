@@ -47,16 +47,33 @@ async function indexedMarkets(mode: "new" | "trending", page = 1): Promise<Marke
   return cached(`indexed-markets:${mode}:${page}`, page === 1 ? FEED_REFRESH_MS : 60_000, async () => parseMarkets(await marketProvider(`${root()}/networks/solana/${mode === "new" ? "new_pools" : "trending_pools"}?include=base_token,quote_token,dex&page=${page}`)));
 }
 async function launchMarkets(page: number) {
-  return cached(`launch-markets:${page}`, 60_000, async () => {
+  const load = async () => {
     // Bound provider calls: scan recent and active pools, then fetch token-level migration evidence.
-    const candidates = (await Promise.all([indexedMarkets("new", page), indexedMarkets("trending", page)])).flat();
-    const mints = [...new Set(candidates.map(market => market.mint))].slice(0, 40);
+    const sources = await Promise.allSettled([indexedMarkets("new", page), indexedMarkets("trending", page)]);
+    const available = sources.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
+    if (!available.length) throw (sources[0] as PromiseRejectedResult).reason;
+    let candidates = available.flat();
+    const mints = [...new Set(candidates.map(market => market.mint))];
     const details = new Map<string, ReturnType<typeof launchStage>>();
+    const tokenCaps = new Map<string, ReturnType<typeof capitalization>>();
+    let statusBatches = 0, statusError: unknown;
     for (let offset = 0; offset < mints.length; offset += 30) {
-      const payload = await marketProvider(`${root()}/networks/solana/tokens/multi/${mints.slice(offset, offset + 30).join(",")}`) as { data?: Resource[] };
-      if (!Array.isArray(payload?.data)) throw new IntegrationError(502, "Launch status data is unavailable.");
-      for (const token of payload.data) details.set(token.id.replace(/^solana_/, ""), launchStage(token.attributes?.launchpad_details));
+      try {
+        const payload = await marketProvider(`${root()}/networks/solana/tokens/multi/${mints.slice(offset, offset + 30).join(",")}`) as { data?: Resource[] };
+        if (!Array.isArray(payload?.data)) throw new IntegrationError(502, "Launch status data is unavailable.");
+        statusBatches++;
+        for (const token of payload.data) {
+          const mint = token.id.replace(/^solana_/, "");
+          details.set(mint, launchStage(token.attributes?.launchpad_details));
+          tokenCaps.set(mint, capitalization(token.attributes?.market_cap_usd, token.attributes?.fdv_usd));
+        }
+      } catch (error) { statusError = error; }
     }
+    if (mints.length && !statusBatches) throw statusError;
+    candidates = candidates.map(market => {
+      const cap = tokenCaps.get(market.mint);
+      return cap?.marketCap != null && (cap.marketCapKind === "reported" || market.marketCap == null) ? { ...market, ...cap } : market;
+    });
     const bonding: Market[] = [], graduated: Market[] = [];
     const destinations = [...new Set([...details.values()].filter(detail => detail.stage === "graduated" && isSolanaAddress(detail.destination ?? "")).map(detail => detail.destination!))];
     const migrated: Market[] = candidates.filter(market => destinations.includes(market.pool));
@@ -74,11 +91,14 @@ async function launchMarkets(page: number) {
       if (status?.stage === "graduated") {
         // Use the destination's live metrics and pool for the terminal, never the retired curve.
         const destination = migrated.find(item => item.mint === market.mint && item.pool === status.destination);
-        if (isSolanaAddress(status.destination ?? "")) { graduated.push(destination ?? { ...market, pool: status.destination!, marketCap: null, marketCapKind: null, price: null, volume24h: null, liquidity: null, change24h: null }); seen.add(market.mint); }
+        if (isSolanaAddress(status.destination ?? "")) { graduated.push(destination ?? { ...market, pool: status.destination!, ...capitalization(null, null), ...tokenCaps.get(market.mint), price: null, volume24h: null, liquidity: null, change24h: null }); seen.add(market.mint); }
       }
     }
-    return { bonding, graduated, stages: [...details.entries()], hasMore: candidates.length >= 20, observedAt: new Date().toISOString() };
-  });
+    return { bonding, graduated, stages: [...details.entries()], hasMore: available.some(markets => markets.length >= 20), partial: available.length < sources.length || statusBatches < Math.ceil(mints.length / 30), observedAt: new Date().toISOString() };
+  };
+  // Bonding and Graduated share the same classified page across serverless instances.
+  return cached(`launch-markets:${page}`, 60_000, process.env.GECKO_API_URL ? load :
+    unstable_cache(load, ["launch-stage-page-v2", String(page)], { revalidate: 60 }));
 }
 export async function marketQuotes(mints: string[]): Promise<Market[]> {
   if (!mints.length || mints.length > 90 || !mints.every(isSolanaAddress)) throw new IntegrationError(400, "Choose between 1 and 90 valid token addresses.");
@@ -105,7 +125,7 @@ export async function discoverMarkets(mode: string, page = 1): Promise<MarketRes
   return cached(`discover:${mode}:${page}`, FEED_REFRESH_MS, async () => {
     if (mode === "bonding" || mode === "graduated") {
       const launches = await launchMarkets(page);
-      return { markets: await enrichCaps(launches[mode]), observedAt: launches.observedAt, page, excludedMints: launches.stages.filter(([, status]) => status.stage !== null && status.stage !== mode).map(([mint]) => mint), nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana launches" };
+      return { markets: await enrichCaps(launches[mode]), partial: launches.partial, observedAt: launches.observedAt, page, excludedMints: launches.stages.filter(([, status]) => status.stage !== null && status.stage !== mode).map(([mint]) => mint), nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana launches" };
     }
     const markets = await indexedMarkets(mode as "new" | "trending", page);
     return { markets: await enrichCaps(markets), observedAt: new Date().toISOString(), page, nextPage: markets.length >= 20 && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana pools" };

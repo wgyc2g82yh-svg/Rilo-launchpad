@@ -28,9 +28,9 @@ export function MarketTerminal({ mint, decimals, initialMarket = null, onClose }
           const data = await rilo<MarketResponse>(`market?mint=${encodeURIComponent(mint)}`, undefined, abort.signal);
           if (abort.signal.aborted) return;
           setHolders(data.totalHolders ?? null);
-          setMarkets(data.markets);
-          setMarket(current => data.markets.find(item => item.pool === current?.pool) ?? data.markets[0] ?? null);
-          setMarketError(!data.markets.length ? "No indexed DEX pool was returned for this token." : data.partial ? "One market provider is unavailable. Coverage is partial and retries automatically." : "");
+          if (data.markets.length) setMarkets(data.markets);
+          setMarket(current => data.markets.find(item => item.pool === current?.pool) ?? data.markets[0] ?? current);
+          setMarketError(!data.markets.length ? "No indexed DEX pool was returned for this token." : data.stale ? `Live data is delayed. Last successful snapshot: ${new Date(data.observedAt).toLocaleTimeString()}. Retrying automatically.` : data.partial ? "One market provider is unavailable. Coverage is partial and retries automatically." : "");
         }
       } catch (e) { if (!abort.signal.aborted) setMarketError(e instanceof Error ? e.message : "Market data unavailable."); }
       finally { if (!abort.signal.aborted) timer = window.setTimeout(loadMarket, 60_000); }

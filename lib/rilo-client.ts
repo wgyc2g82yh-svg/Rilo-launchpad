@@ -4,11 +4,19 @@ import type { Keypair } from "@solana/web3.js";
 import { Buffer } from "buffer";
 import { phantomProvider } from "@/components/wallet-provider";
 import type { BuiltTransaction, Order } from "@/lib/integration-types";
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public retryAfterMs = 20_000) { super(message); }
+}
 
 export async function rilo<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`/api/rilo/${path}`, body === undefined ? { signal } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "The request could not complete.");
+  let data;
+  try { data = await response.json(); }
+  catch { throw new ApiError("The service is temporarily unavailable. Please try again shortly.", response.status || 502); }
+  if (!response.ok) {
+    const retry = Number(response.headers.get("Retry-After"));
+    throw new ApiError(data.error || "The request could not complete.", response.status, retry > 0 && Number.isFinite(retry) ? Math.min(300_000, retry * 1000) : response.status === 429 ? 60_000 : 20_000);
+  }
   return data as T;
 }
 function signer(wallet: string) {

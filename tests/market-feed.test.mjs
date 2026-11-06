@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { capitalization, mergeFeed, applyQuotes, positiveNumber } from '../lib/market-feed-data.ts';
+import { capitalization, mergeFeed, applyQuotes, positiveNumber, quoteBatch } from '../lib/market-feed-data.ts';
 const market=(mint,pool=mint,extra={})=>({mint,pool,...extra});
 test('pagination retains more than twenty tokens and deduplicates moving page boundaries',()=>{
  const first=Array.from({length:20},(_,i)=>market(String(i)));
@@ -29,4 +29,10 @@ test('feed refresh retains the last capitalization during provider gaps and acce
   assert.equal(refreshed[0].marketCap,100);assert.equal(refreshed[0].marketCapKind,'reported');assert.equal(refreshed[0].pool,'destination');
  }
  assert.equal(mergeFeed(previous,[market('a','curve',{marketCap:150,marketCapKind:'reported'})])[0].marketCap,150);
+});
+test('quote refresh rotates bounded batches so large feeds do not refetch every token each cycle',()=>{
+ const rows=Array.from({length:400},(_,i)=>market(String(i))),visited=[];let offset=0;
+ for(let i=0;i<5;i++){const batch=quoteBatch(rows,offset);assert.ok(batch.mints.length<=90);visited.push(...batch.mints);offset=batch.nextOffset;}
+ assert.equal(visited.length,400);assert.equal(new Set(visited).size,400);assert.equal(offset,0);
+ assert.deepEqual(quoteBatch([],0),{mints:[],nextOffset:0});assert.equal(quoteBatch(rows,9999).mints[0],'0');
 });

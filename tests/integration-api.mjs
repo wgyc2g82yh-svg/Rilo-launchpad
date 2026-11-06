@@ -14,12 +14,13 @@ const signature=bs58.encode(new Uint8Array(64).fill(3));
 const hash=value=>createHash('sha256').update(value).digest('hex');
 function ticket(value){const data=Buffer.from(JSON.stringify(value)).toString('base64url');return `${data}.${createHmac('sha256',secret).update(data).digest('base64url')}`;}
 let sent=0,executed=0,failMigration=false,failTrending=false,failTokenPools=false;
-const chartRequests=[], discoveryPages=[];
+const chartRequests=[], discoveryPages=[], throttledPages=[], tokenPoolRequests=[];
 const fixture=createServer(async(request,response)=>{
   const url=new URL(request.url,'http://localhost');let result;
   if(request.method==='GET'){
+    if(url.pathname.includes('/tokens/') && url.pathname.endsWith('/pools'))tokenPoolRequests.push(url.pathname);
     if(failTokenPools && url.pathname.includes('/tokens/') && url.pathname.endsWith('/pools')){response.statusCode=503;response.end('{}');return;}
-    if(failTrending && url.pathname.endsWith('/trending_pools')){response.statusCode=429;response.setHeader('Content-Type','application/json');response.end(JSON.stringify({error:'fixture rate limit'}));return;}
+    if(failTrending && url.pathname.endsWith('/trending_pools')){throttledPages.push(url.searchParams.get('page'));response.statusCode=429;response.setHeader('Retry-After','120');response.setHeader('Content-Type','application/json');response.end(JSON.stringify({error:'fixture rate limit'}));return;}
     if(url.pathname.endsWith('/order')){
       const wallet=url.searchParams.get('taker');
       const tx=wallet?new VersionedTransaction(new TransactionMessage({payerKey:new PublicKey(wallet),recentBlockhash:mint,instructions:[SystemProgram.transfer({fromPubkey:new PublicKey(wallet),toPubkey:receiver.publicKey,lamports:1})]}).compileToV0Message()):null;
@@ -27,6 +28,8 @@ const fixture=createServer(async(request,response)=>{
     }else if(url.pathname.endsWith(`/tokens/${pastMint}/report`))result={mint:pastMint,creator:signer.publicKey.toBase58(),rugged:true,risks:[]};
     else if(url.pathname.endsWith('/report'))result={mint:token,creator:signer.publicKey.toBase58(),rugged:true,creatorTokens:[{mint:pastMint},{mint:extendedMint},{mint:token}],risks:[{name:'Fixture risk',level:'danger',description:'Provider warning fixture'}],markets:[{pubkey:mint,mintA:token,mintB:mint,mintLP:token,lp:{lpLocked:75,lpUnlocked:25,lpLockedPct:75}}]};
     else if(url.pathname.includes('/ohlcv/')){chartRequests.push({path:url.pathname,aggregate:url.searchParams.get('aggregate'),side:url.searchParams.get('token')});result={data:{attributes:{ohlcv_list:[[120,1,2,1,2,30],[60,1,1,1,1,20]]}}};}
+    else if(url.pathname.endsWith('/tokens/v1/solana/'+pastMint)){response.statusCode=503;response.end('{}');return;}
+    else if(url.pathname.endsWith('/tokens/'+pastMint+'/pools'))result={data:[{id:'fallback-pool',attributes:{address:mint,name:'FALLBACK / SOL',base_token_price_usd:'0.01'},relationships:{base_token:{data:{id:`solana_${pastMint}`}}}}]};
     else if(url.pathname.includes('/tokens/v1/solana/')) result=[{chainId:'solana',pairAddress:mint,baseToken:{address:token,name:'Fixture token',symbol:'TEST'},marketCap:12345,volume:{h24:1000},liquidity:{usd:5000}},{chainId:'solana',pairAddress:receiver.publicKey.toBase58(),baseToken:{address:extendedMint},fdv:67890}];
     else if(url.pathname.includes('/tokens/multi/')) result={data:[{id:`solana_${token}`,attributes:{launchpad_details:{completed:false,graduation_percentage:75}}},{id:`solana_${extendedMint}`,attributes:{launchpad_details:{completed:true,graduation_percentage:100,migrated_destination_pool_address:receiver.publicKey.toBase58()}}}]};
     else if(url.pathname.includes('/pools/multi/') && failMigration){response.statusCode=429;response.setHeader('Content-Type','application/json');response.end(JSON.stringify({error:'fixture rate limit'}));return;}
@@ -59,7 +62,7 @@ const reservation=createServer();reservation.listen(0,'127.0.0.1');await once(re
 const base=`http://127.0.0.1:${port}`,upstream=`http://127.0.0.1:${fixture.address().port}`;
 const child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(port)],{env:{...process.env,SOLANA_RPC_URL:upstream,GECKO_API_URL:upstream,DEXSCREENER_API_URL:upstream,RUGCHECK_API_URL:upstream,JUPITER_API_URL:upstream,JUPITER_API_KEY:'fixture-only',APP_SIGNING_SECRET:secret,APP_ORIGIN:base,ENABLE_MAINNET_TRANSACTIONS:'true'},stdio:['ignore','pipe','pipe']});
 let logs='';child.stdout.on('data',chunk=>logs+=chunk);child.stderr.on('data',chunk=>logs+=chunk);
-const get=async(path)=>{const r=await fetch(base+'/api/rilo/'+path);return {status:r.status,body:await r.json()};};
+const get=async(path)=>{const r=await fetch(base+'/api/rilo/'+path);return {status:r.status,retryAfter:r.headers.get('Retry-After'),body:await r.json()};};
 const post=async(path,body,origin=base)=>{const r=await fetch(base+'/api/rilo/'+path,{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
 try{
   let ready=false;for(let n=0;n<60;n++){try{if((await fetch(base+'/app')).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,200));}assert.ok(ready,logs);
@@ -79,11 +82,14 @@ try{
   failTrending=true;
   const survivingBonding=await get('discover?mode=bonding&page=3');assert.equal(survivingBonding.status,200);assert.equal(survivingBonding.body.markets[0].mint,token);assert.equal(survivingBonding.body.partial,true,'one throttled candidate source does not discard verified launches');
   const survivingGraduated=await get('discover?mode=graduated&page=3');assert.equal(survivingGraduated.status,200);assert.equal(survivingGraduated.body.markets[0].pool,receiver.publicKey.toBase58());
+  const throttled=await get('discover?mode=trending&page=4');assert.equal(throttled.status,429);assert.equal(throttled.retryAfter,'120');
+  assert.equal((await get('discover?mode=trending&page=4')).status,429);assert.equal(throttledPages.filter(page=>page==='4').length,1,'cold failures respect upstream backoff instead of repeating the provider request');
   failTrending=false;
-  const tokenMarket=await get(`market?mint=${token}`);assert.equal(tokenMarket.status,200);assert.equal(tokenMarket.body.markets[0].marketCap,12345);assert.equal(tokenMarket.body.markets[0].decimals,6);
+  const tokenMarket=await get(`market?mint=${token}`);assert.equal(tokenMarket.status,200);assert.equal(tokenMarket.body.markets[0].marketCap,12345);assert.equal(tokenMarket.body.markets[0].decimals,null);assert.equal(tokenPoolRequests.length,0,'indexed token quotes avoid another call to the constrained discovery provider');
   failTokenPools=true;
-  const fallbackMarket=await get(`market?mint=${extendedMint}`);assert.equal(fallbackMarket.status,200);assert.equal(fallbackMarket.body.partial,true);assert.equal(fallbackMarket.body.markets[0].mint,extendedMint);assert.equal(fallbackMarket.body.markets[0].marketCap,67890);assert.equal(fallbackMarket.body.markets[0].pool,receiver.publicKey.toBase58());
+  const fallbackMarket=await get(`market?mint=${extendedMint}`);assert.equal(fallbackMarket.status,200);assert.equal(fallbackMarket.body.partial,false);assert.equal(tokenPoolRequests.length,0);assert.equal(fallbackMarket.body.markets[0].mint,extendedMint);assert.equal(fallbackMarket.body.markets[0].marketCap,67890);assert.equal(fallbackMarket.body.markets[0].pool,receiver.publicKey.toBase58());
   failTokenPools=false;
+  const secondaryMarket=await get(`market?mint=${pastMint}`);assert.equal(secondaryMarket.status,200);assert.equal(secondaryMarket.body.markets[0].mint,pastMint);assert.equal(secondaryMarket.body.partial,true);assert.equal(tokenPoolRequests.length,1,'a missing quote provider still falls back to the secondary pool source');
   const liquidity=await get(`liquidity?mint=${token}&pool=${mint}`);assert.equal(liquidity.status,200);assert.equal(liquidity.body.status,'partial');assert.equal(liquidity.body.lockedPercent,75);assert.equal(liquidity.body.developerControl,'unverified');
   assert.equal((await get(`liquidity?mint=${token}&pool=${signer.publicKey.toBase58()}`)).body.status,'unknown');
   const security=await get(`security?mint=${token}&pool=${mint}`);assert.equal(security.status,200,JSON.stringify(security));

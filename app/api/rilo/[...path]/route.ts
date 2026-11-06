@@ -54,7 +54,7 @@ async function handle(request: NextRequest) {
       throw new IntegrationError(404, "Endpoint not found.");
     });
     return NextResponse.json(result, { headers });
-  } catch (error) { const failure = publicError(error); return NextResponse.json({ error: failure.error }, { status: failure.status, headers: { ...headers, ...(failure.status === 429 ? { "Retry-After": "10" } : {}) } }); }
+  } catch (error) { const failure = publicError(error); return NextResponse.json({ error: failure.error }, { status: failure.status, headers: { ...headers, ...(failure.status === 429 ? { "Retry-After": String(Math.ceil((error instanceof IntegrationError ? error.retryAfterMs ?? 10_000 : 10_000) / 1000)) } : {}) } }); }
 }
 export const GET = handle;
 export const POST = handle;

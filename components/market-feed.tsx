@@ -13,10 +13,13 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
   const [loadingMore, setLoadingMore] = useState(false), [nextPage, setNextPage] = useState<number | null>(null);
   const more = useRef<HTMLDivElement>(null), loadMore = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
-    const abort = new AbortController(); let timer: number, retryMs = FEED_REFRESH_MS, busy = false, markets: Market[] = [], next: number | null = 1, highest = 0, refreshPage = 2;
+    const abort = new AbortController(); let timer: number, retryMs = FEED_REFRESH_MS, busy = false, markets: Market[] = [], next: number | null = 1, highest = 0, refreshPage = 2, retryPage: number | null = null;
     setData(null); setLoading(true); setError(""); setNextPage(null);
     async function page(number: number, prepend = false) {
-      const result = await rilo<MarketResponse>(`discover?mode=${mode}&page=${number}`, undefined, abort.signal);
+      let result: MarketResponse;
+      try { result = await rilo<MarketResponse>(`discover?mode=${mode}&page=${number}`, undefined, abort.signal); }
+      catch (error) { retryPage = number; throw error; }
+      if (retryPage === number) retryPage = null;
       if (abort.signal.aborted) return;
       markets = mergeFeed(markets.filter(market => !result.excludedMints?.includes(market.mint)), result.markets, prepend);
       if (number >= highest) { highest = number; next = result.nextPage ?? null; setNextPage(next); }
@@ -32,7 +35,11 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
       if (!busy && !document.hidden) {
         busy = true;
         try {
-          await page(1, true);
+          // Resume a failed pagination request after backoff, even when the error
+          // has paused the scroll observer. Otherwise a feed can stay on page one.
+          const resume = retryPage;
+          if (resume !== null) await page(resume, resume === 1);
+          else await page(1, true);
           // Rotate older pages to update stages without repeatedly downloading the entire feed.
           if (highest > 1) { await page(refreshPage); refreshPage = refreshPage >= highest ? 2 : refreshPage + 1; }
           const mints = markets.map(market => market.mint);

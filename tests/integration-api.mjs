@@ -12,7 +12,7 @@ const signer=Keypair.generate(),receiver=Keypair.generate(),secret='test-only-si
 const signature=bs58.encode(new Uint8Array(64).fill(3));
 const hash=value=>createHash('sha256').update(value).digest('hex');
 function ticket(value){const data=Buffer.from(JSON.stringify(value)).toString('base64url');return `${data}.${createHmac('sha256',secret).update(data).digest('base64url')}`;}
-let sent=0,executed=0;
+let sent=0,executed=0,failMigration=false;
 const chartRequests=[], discoveryPages=[];
 const fixture=createServer(async(request,response)=>{
   const url=new URL(request.url,'http://localhost');let result;
@@ -25,6 +25,7 @@ const fixture=createServer(async(request,response)=>{
     else if(url.pathname.includes('/ohlcv/')){chartRequests.push({path:url.pathname,aggregate:url.searchParams.get('aggregate'),side:url.searchParams.get('token')});result={data:{attributes:{ohlcv_list:[[120,1,2,1,2,30],[60,1,1,1,1,20]]}}};}
     else if(url.pathname.includes('/tokens/v1/solana/')) result=[{chainId:'solana',pairAddress:mint,baseToken:{address:token,name:'Fixture token',symbol:'TEST'},marketCap:12345,volume:{h24:1000},liquidity:{usd:5000}},{chainId:'solana',pairAddress:receiver.publicKey.toBase58(),baseToken:{address:extendedMint},fdv:67890}];
     else if(url.pathname.includes('/tokens/multi/')) result={data:[{id:`solana_${token}`,attributes:{launchpad_details:{completed:false,graduation_percentage:75}}},{id:`solana_${extendedMint}`,attributes:{launchpad_details:{completed:true,graduation_percentage:100,migrated_destination_pool_address:receiver.publicKey.toBase58()}}}]};
+    else if(url.pathname.includes('/pools/multi/') && failMigration){response.statusCode=429;response.setHeader('Content-Type','application/json');response.end(JSON.stringify({error:'fixture rate limit'}));return;}
     else if(url.pathname.includes('/pools/multi/')) result={data:[{id:`solana_${receiver.publicKey}`,attributes:{address:receiver.publicKey.toBase58(),name:'GRAD / SOL',volume_usd:{h24:'9999'}},relationships:{base_token:{data:{id:`solana_${extendedMint}`}},dex:{data:{id:'destination-dex'}}}}]};
     else result={data:[{id:`solana_${mint}`,attributes:{address:mint,name:'RILO / SOL',base_token_price_usd:'0.01',volume_usd:{h24:'1000'},reserve_in_usd:'5000',price_change_percentage:{h24:'2.5'},pool_created_at:'2026-01-01T00:00:00Z'},relationships:{base_token:{data:{id:`solana_${token}`}},quote_token:{data:{id:`solana_${mint}`}},dex:{data:{id:'test-dex'}}}},{id:`solana_${signer.publicKey}`,attributes:{address:signer.publicKey.toBase58(),name:'GRAD / SOL'},relationships:{base_token:{data:{id:`solana_${extendedMint}`}}}}],included:[{id:`solana_${token}`,attributes:{name:'Fixture token',symbol:'TEST',decimals:6,image_url:'https://example.com/token.png'}}]};
     if(url.pathname.endsWith('/new_pools') || url.pathname.endsWith('/trending_pools')) discoveryPages.push(url.searchParams.get('page'));
@@ -65,6 +66,10 @@ try{
   const fresh=await get('discover?mode=new');assert.equal(fresh.status,200);assert.equal(fresh.body.markets.length,2);
   const bonding=await get('discover?mode=bonding');assert.equal(bonding.status,200);assert.deepEqual(bonding.body.markets.map(m=>m.mint),[token]);
   const graduated=await get('discover?mode=graduated');assert.equal(graduated.status,200);assert.deepEqual(graduated.body.markets.map(m=>m.mint),[extendedMint]);assert.equal(graduated.body.markets[0].pool,receiver.publicKey.toBase58());assert.equal(graduated.body.markets[0].marketCap,67890);assert.equal(graduated.body.markets[0].marketCapKind,'fdv');assert.equal(graduated.body.markets[0].volume24h,9999,'graduated token uses destination pool metrics');
+  failMigration=true;
+  const partialBonding=await get('discover?mode=bonding&page=2');assert.equal(partialBonding.status,200);assert.equal(partialBonding.body.markets[0].mint,token);
+  const partialGraduated=await get('discover?mode=graduated&page=2');assert.equal(partialGraduated.status,200);assert.equal(partialGraduated.body.markets[0].pool,receiver.publicKey.toBase58());assert.equal(partialGraduated.body.markets[0].volume24h,null,'unavailable destination metrics never reuse the retired curve');
+  failMigration=false;
   const liquidity=await get(`liquidity?mint=${token}&pool=${mint}`);assert.equal(liquidity.status,200);assert.equal(liquidity.body.status,'partial');assert.equal(liquidity.body.lockedPercent,75);assert.equal(liquidity.body.developerControl,'unverified');
   assert.equal((await get(`liquidity?mint=${token}&pool=${signer.publicKey.toBase58()}`)).body.status,'unknown');
   const security=await get(`security?mint=${token}&pool=${mint}`);assert.equal(security.status,200,JSON.stringify(security));

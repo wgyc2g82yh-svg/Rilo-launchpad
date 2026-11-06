@@ -59,9 +59,12 @@ async function launchMarkets(page: number) {
     }
     const bonding: Market[] = [], graduated: Market[] = [];
     const destinations = [...new Set([...details.values()].filter(detail => detail.stage === "graduated" && isSolanaAddress(detail.destination ?? "")).map(detail => detail.destination!))];
-    const migrated: Market[] = [];
-    for (let offset = 0; offset < destinations.length; offset += 30) {
-      migrated.push(...parseMarkets(await marketProvider(`${root()}/networks/solana/pools/multi/${destinations.slice(offset, offset + 30).join(",")}?include=base_token,quote_token,dex`)));
+    const migrated: Market[] = candidates.filter(market => destinations.includes(market.pool));
+    const missing = destinations.filter(pool => !migrated.some(market => market.pool === pool));
+    for (let offset = 0; offset < missing.length; offset += 30) {
+      // Extra pool metrics must not take down otherwise verified launch-stage results.
+      const payload = await marketProvider(`${root()}/networks/solana/pools/multi/${missing.slice(offset, offset + 30).join(",")}?include=base_token,quote_token,dex`).catch(() => ({ data: [] }));
+      migrated.push(...parseMarkets(payload));
     }
     const seen = new Set<string>();
     for (const market of candidates) {
@@ -71,7 +74,7 @@ async function launchMarkets(page: number) {
       if (status?.stage === "graduated") {
         // Use the destination's live metrics and pool for the terminal, never the retired curve.
         const destination = migrated.find(item => item.mint === market.mint && item.pool === status.destination);
-        if (destination) { graduated.push(destination); seen.add(market.mint); }
+        if (isSolanaAddress(status.destination ?? "")) { graduated.push(destination ?? { ...market, pool: status.destination!, marketCap: null, marketCapKind: null, price: null, volume24h: null, liquidity: null, change24h: null }); seen.add(market.mint); }
       }
     }
     return { bonding, graduated, stages: [...details.entries()], hasMore: candidates.length >= 20, observedAt: new Date().toISOString() };

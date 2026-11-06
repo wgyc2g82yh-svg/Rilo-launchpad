@@ -1,4 +1,5 @@
 import "server-only";
+import { unstable_cache } from "next/cache";
 import { capitalization, applyQuotes, FEED_REFRESH_MS, MAX_DISCOVERY_PAGE } from "@/lib/market-feed-data";
 import { launchStage } from "@/lib/launch-stage";
 import { rugcheckReport } from "@/lib/rugcheck-service";
@@ -10,6 +11,18 @@ import type { Market, MarketResponse } from "@/lib/integration-types";
 import { cached, fetchProvider, IntegrationError } from "@/lib/integration-server";
 
 const root = () => (process.env.GECKO_API_URL || "https://api.geckoterminal.com/api/v2").replace(/\/$/, "");
+let providerSlot = 0;
+async function marketProvider(url: string): Promise<unknown> {
+  // Share public discovery responses across serverless instances, including across tabs.
+  // Keep test providers uncached by Next so fixtures remain isolated.
+  if (process.env.GECKO_API_URL) return fetchProvider(url);
+  return unstable_cache(async () => {
+    const wait = Math.max(0, providerSlot - Date.now());
+    providerSlot = Math.max(providerSlot, Date.now()) + 2200;
+    if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+    return fetchProvider(url);
+  }, ["discovery-provider-v1", url], { revalidate: 30 })();
+}
 const num = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : typeof value === "string" && value.trim() && Number.isFinite(Number(value)) ? Number(value) : null;
 type Resource = { id: string; attributes?: Record<string, unknown>; relationships?: Record<string, { data?: { id?: string } }> };
 function parseMarkets(value: unknown, mint?: string): Market[] {
@@ -31,7 +44,7 @@ function parseMarkets(value: unknown, mint?: string): Market[] {
   });
 }
 async function indexedMarkets(mode: "new" | "trending", page = 1): Promise<Market[]> {
-  return cached(`indexed-markets:${mode}:${page}`, page === 1 ? FEED_REFRESH_MS : 60_000, async () => parseMarkets(await fetchProvider(`${root()}/networks/solana/${mode === "new" ? "new_pools" : "trending_pools"}?include=base_token,quote_token,dex&page=${page}`)));
+  return cached(`indexed-markets:${mode}:${page}`, page === 1 ? FEED_REFRESH_MS : 60_000, async () => parseMarkets(await marketProvider(`${root()}/networks/solana/${mode === "new" ? "new_pools" : "trending_pools"}?include=base_token,quote_token,dex&page=${page}`)));
 }
 async function launchMarkets(page: number) {
   return cached(`launch-markets:${page}`, 60_000, async () => {
@@ -40,7 +53,7 @@ async function launchMarkets(page: number) {
     const mints = [...new Set(candidates.map(market => market.mint))].slice(0, 40);
     const details = new Map<string, ReturnType<typeof launchStage>>();
     for (let offset = 0; offset < mints.length; offset += 30) {
-      const payload = await fetchProvider(`${root()}/networks/solana/tokens/multi/${mints.slice(offset, offset + 30).join(",")}`) as { data?: Resource[] };
+      const payload = await marketProvider(`${root()}/networks/solana/tokens/multi/${mints.slice(offset, offset + 30).join(",")}`) as { data?: Resource[] };
       if (!Array.isArray(payload?.data)) throw new IntegrationError(502, "Launch status data is unavailable.");
       for (const token of payload.data) details.set(token.id.replace(/^solana_/, ""), launchStage(token.attributes?.launchpad_details));
     }
@@ -48,7 +61,7 @@ async function launchMarkets(page: number) {
     const destinations = [...new Set([...details.values()].filter(detail => detail.stage === "graduated" && isSolanaAddress(detail.destination ?? "")).map(detail => detail.destination!))];
     const migrated: Market[] = [];
     for (let offset = 0; offset < destinations.length; offset += 30) {
-      migrated.push(...parseMarkets(await fetchProvider(`${root()}/networks/solana/pools/multi/${destinations.slice(offset, offset + 30).join(",")}?include=base_token,quote_token,dex`)));
+      migrated.push(...parseMarkets(await marketProvider(`${root()}/networks/solana/pools/multi/${destinations.slice(offset, offset + 30).join(",")}?include=base_token,quote_token,dex`)));
     }
     const seen = new Set<string>();
     for (const market of candidates) {
@@ -99,7 +112,7 @@ export async function tokenMarket(mint: string): Promise<MarketResponse> {
   if (!isSolanaAddress(mint)) throw new IntegrationError(400, "Invalid token address.");
   return cached(`token-market:${mint}`, 60_000, async () => {
     const [pools, holders, pairs] = await Promise.all([
-      fetchProvider(`${root()}/networks/solana/tokens/${mint}/pools?include=base_token,quote_token,dex`),
+      marketProvider(`${root()}/networks/solana/tokens/${mint}/pools?include=base_token,quote_token,dex`),
       rugcheckReport(mint).catch(() => null),
       fetchProvider(`https://api.dexscreener.com/token-pairs/v1/solana/${mint}`).catch(() => null),
     ]);
@@ -115,7 +128,7 @@ export async function tokenChart(pool: string, side: string, interval = "5m") {
   if (!isSolanaAddress(pool) || !["base", "quote"].includes(side) || !isChartInterval(interval)) throw new IntegrationError(400, "Choose a valid pool, token side, and chart interval (live, 5m, or 4h).");
   const options = CHART_INTERVALS[interval];
   return cached(`chart:${pool}:${side}:${interval}`, options.cacheMs, async () => {
-    const payload = await fetchProvider(`${root()}/networks/solana/pools/${pool}/ohlcv/${options.timeframe}?aggregate=${options.aggregate}&limit=120&currency=usd&token=${side}`) as { data?: { attributes?: { ohlcv_list?: unknown } } };
+    const payload = await marketProvider(`${root()}/networks/solana/pools/${pool}/ohlcv/${options.timeframe}?aggregate=${options.aggregate}&limit=120&currency=usd&token=${side}`) as { data?: { attributes?: { ohlcv_list?: unknown } } };
     return { candles: normalizeCandles(payload?.data?.attributes?.ohlcv_list), interval, observedAt: new Date().toISOString(), source: "GeckoTerminal", refreshMs: options.refreshMs };
   });
 }

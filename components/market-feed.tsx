@@ -13,16 +13,16 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
   const [loadingMore, setLoadingMore] = useState(false), [nextPage, setNextPage] = useState<number | null>(null);
   const more = useRef<HTMLDivElement>(null), loadMore = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
-    const abort = new AbortController(); let timer: number, busy = false, markets: Market[] = [], next: number | null = 1, highest = 0, refreshPage = 2;
+    const abort = new AbortController(); let timer: number, retryMs = FEED_REFRESH_MS, busy = false, markets: Market[] = [], next: number | null = 1, highest = 0, refreshPage = 2;
     setData(null); setLoading(true); setError(""); setNextPage(null);
     async function page(number: number, prepend = false) {
       const result = await rilo<MarketResponse>(`discover?mode=${mode}&page=${number}`, undefined, abort.signal);
       if (abort.signal.aborted) return;
       markets = mergeFeed(markets.filter(market => !result.excludedMints?.includes(market.mint)), result.markets, prepend);
       if (number >= highest) { highest = number; next = result.nextPage ?? null; setNextPage(next); }
-      setData({ ...result, markets }); setLoading(false); setError("");
+      setData({ ...result, markets }); setLoading(false); setError(""); retryMs = FEED_REFRESH_MS;
     }
-    const fail = (error: unknown) => { if (!abort.signal.aborted) setError(error instanceof Error ? error.message : "Market feed is unavailable."); };
+    const fail = (error: unknown) => { retryMs = error instanceof Error && /busy|capacity/i.test(error.message) ? 60_000 : FEED_REFRESH_MS; if (!abort.signal.aborted) setError(error instanceof Error ? error.message : "Market feed is unavailable."); };
     loadMore.current = async () => {
       if (busy || next === null || abort.signal.aborted) return;
       busy = true; setLoadingMore(true);
@@ -45,13 +45,13 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
           }
         } catch (error) { fail(error); } finally { busy = false; }
       }
-      if (!abort.signal.aborted) timer = window.setTimeout(refresh, FEED_REFRESH_MS);
+      if (!abort.signal.aborted) timer = window.setTimeout(refresh, retryMs);
     }
     async function start() {
       busy = true; setLoadingMore(true);
       try { for (let index = 0; index < 3 && next !== null && !abort.signal.aborted; index++) await page(next); }
       catch (error) { fail(error); }
-      finally { busy = false; if (!abort.signal.aborted) { setLoading(false); setLoadingMore(false); timer = window.setTimeout(refresh, FEED_REFRESH_MS); } }
+      finally { busy = false; if (!abort.signal.aborted) { setLoading(false); setLoadingMore(false); timer = window.setTimeout(refresh, retryMs); } }
     }
     void start();
     return () => { abort.abort(); window.clearTimeout(timer); };

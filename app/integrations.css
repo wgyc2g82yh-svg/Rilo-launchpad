@@ -138,3 +138,10 @@
 .market-row { cursor: pointer; touch-action: manipulation; }
 .market-row:focus-within { outline: 1px solid #ffffff50; outline-offset: -1px; }
 .token-select { min-height: 44px; }
+
+.token-chart .chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.native-chart-source { color: #727782; font: 8px var(--mono); text-decoration: none; }
+.native-chart-frame { position: relative; width: 100%; min-width: 0; height: 420px; overflow: hidden; background: #090a0c; border-radius: 5px; }
+.native-chart-canvas { width: 100%; height: 100%; }
+.native-chart-state { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; color: #999ca5; font-size: 12px; pointer-events: none; }
+.native-chart-warning { position: absolute; top: 8px; left: 10px; right: 70px; margin: 0; color: #c1b599; font-size: 10px; pointer-events: none; }

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import type { IChartApi, UTCTimestamp } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, UTCTimestamp } from "lightweight-charts";
 import { CHART_INTERVALS, type ChartInterval } from "@/lib/chart-options";
 import type { Candle } from "@/lib/integration-types";
 import { ApiError, rilo } from "@/lib/rilo-client";
@@ -9,6 +9,9 @@ type ChartResponse = { candles: Candle[]; observedAt: string; refreshMs: number 
 // TradingView Lightweight Charts™
 // Copyright (с) 2025 TradingView, Inc. https://www.tradingview.com/
 export function TokenChart({ mint, pool, side }: { mint: string; pool: string; side: string }) {
+  const [kind, setKind] = useState<"candles" | "line">("candles");
+  const kindRef = useRef(kind), series = useRef<{ candles: ISeriesApi<"Candlestick">; line: ISeriesApi<"Line"> } | null>(null);
+  useEffect(() => { kindRef.current = kind; series.current?.candles.applyOptions({ visible: kind === "candles" }); series.current?.line.applyOptions({ visible: kind === "line" }); }, [kind]);
   const [interval, setInterval] = useState<ChartInterval>("live");
   const [loading, setLoading] = useState(true), [empty, setEmpty] = useState(false), [error, setError] = useState("");
   const host = useRef<HTMLDivElement>(null);
@@ -16,7 +19,7 @@ export function TokenChart({ mint, pool, side }: { mint: string; pool: string; s
     const abort = new AbortController(); let chart: IChartApi | undefined, timer: number | undefined, busy = false, hasData = false;
     setLoading(true); setEmpty(false); setError("");
     async function setup() {
-      const { createChart, CandlestickSeries, HistogramSeries, ColorType } = await import("lightweight-charts");
+      const { createChart, CandlestickSeries, LineSeries, HistogramSeries, ColorType } = await import("lightweight-charts");
       if (abort.signal.aborted || !host.current) return;
       chart = createChart(host.current, {
         autoSize: true, height: 420,
@@ -27,7 +30,9 @@ export function TokenChart({ mint, pool, side }: { mint: string; pool: string; s
         crosshair: { vertLine: { color: "#aeb3c050", labelBackgroundColor: "#30343d" }, horzLine: { color: "#aeb3c050", labelBackgroundColor: "#30343d" } },
         handleScroll: { vertTouchDrag: false, horzTouchDrag: true, mouseWheel: false, pressedMouseMove: true },
       });
-      const candles = chart.addSeries(CandlestickSeries, { upColor: "#2ab69d", downColor: "#d5697c", wickUpColor: "#2ab69d", wickDownColor: "#d5697c", borderVisible: false });
+      const candles = chart.addSeries(CandlestickSeries, { upColor: "#2ab69d", downColor: "#d5697c", wickUpColor: "#2ab69d", wickDownColor: "#d5697c", borderVisible: false, visible: kindRef.current === "candles" });
+      const line = chart.addSeries(LineSeries, { color: "#d5d9e4", lineWidth: 2, pointMarkersVisible: true, pointMarkersRadius: 2, visible: kindRef.current === "line" });
+      series.current = { candles, line };
       const volume = chart.addSeries(HistogramSeries, { priceScaleId: "volume", priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false });
       volume.priceScale().applyOptions({ scaleMargins: { top: .83, bottom: 0 }, visible: false });
       let previous: Candle[] = [];
@@ -44,14 +49,15 @@ export function TokenChart({ mint, pool, side }: { mint: string; pool: string; s
               return;
             }
             const precision = last.close > 0 ? Math.min(12, Math.max(2, Math.ceil(-Math.log10(last.close)) + 3)) : 8;
-            candles.applyOptions({ priceFormat: { type: "price", precision, minMove: 10 ** -precision } });
+            const priceFormat = { type: "price" as const, precision, minMove: 10 ** -precision };
+            candles.applyOptions({ priceFormat }); line.applyOptions({ priceFormat });
             const candleData = data.candles.map(item => ({ ...item, time: item.time as UTCTimestamp }));
             const volumeData = data.candles.map(item => ({ time: item.time as UTCTimestamp, value: item.volume, color: item.close >= item.open ? "#2ab69d55" : "#d5697c55" }));
             const reset = !previous.length || previous.slice(0, -1).some((item, index) => JSON.stringify(item) !== JSON.stringify(data.candles[index]));
-            if (reset) { candles.setData(candleData); volume.setData(volumeData); }
+            if (reset) { candles.setData(candleData); line.setData(candleData.map(item => ({ time: item.time, value: item.close }))); volume.setData(volumeData); }
             else {
               const lastTime = previous.at(-1)!.time;
-              candleData.forEach((item, index) => { if (item.time >= lastTime) { candles.update(item); volume.update(volumeData[index]); } });
+              candleData.forEach((item, index) => { if (item.time >= lastTime) { candles.update(item); line.update({ time: item.time, value: item.close }); volume.update(volumeData[index]); } });
             }
             if (!hasData) chart!.timeScale().setVisibleLogicalRange({ from: data.candles.length - 70, to: data.candles.length + 3 });
             previous = data.candles; hasData = true; setEmpty(false); setError("");
@@ -71,13 +77,17 @@ export function TokenChart({ mint, pool, side }: { mint: string; pool: string; s
       void load();
     }
     void setup().catch(() => { if (!abort.signal.aborted) { setLoading(false); setError("The chart could not load. Refresh the page to try again."); } });
-    return () => { abort.abort(); window.clearTimeout(timer); chart?.remove(); };
+    return () => { abort.abort(); window.clearTimeout(timer); series.current = null; chart?.remove(); };
   }, [mint, pool, side, interval]);
   return <div className="token-chart">
     <div className="chart-toolbar"><div className="segmented chart-intervals" role="group" aria-label="Chart interval">
       {(Object.keys(CHART_INTERVALS) as ChartInterval[]).map(value => <button type="button" key={value} aria-pressed={interval === value} className={interval === value ? "selected" : ""} onClick={() => setInterval(value)}>{CHART_INTERVALS[value].label}</button>)}
-    </div><a className="native-chart-source" href="https://www.geckoterminal.com/" target="_blank" rel="noopener noreferrer" title="Candle data source">GeckoTerminal</a></div>
+    </div><div className="chart-style-controls" role="group" aria-label="Chart style">
+      <button type="button" aria-label="Candles" title="Candlestick chart" aria-pressed={kind === "candles"} onClick={() => setKind("candles")}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M7 2v4m0 12v4M17 2v8m0 8v4"/><rect x="4" y="6" width="6" height="12" rx="1"/><rect x="14" y="10" width="6" height="8" rx="1"/></svg></button>
+      <button type="button" aria-label="Line" title="Line chart" aria-pressed={kind === "line"} onClick={() => setKind("line")}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m3 17 5-6 5 3 8-10" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
+    </div></div>
     <div className="native-chart-frame" role="region" aria-label={CHART_INTERVALS[interval].label + " token price chart"}>
+      <a className="native-chart-source" href="https://www.geckoterminal.com/" target="_blank" rel="noopener noreferrer" title="Candle data source">GeckoTerminal</a>
       <div ref={host} className="native-chart-canvas" />
       {(loading || empty) && <p className="native-chart-state" role="status">{loading ? "Loading chart…" : "No candles indexed yet."}</p>}
       {error && <p className="native-chart-warning" role="status">{error}</p>}

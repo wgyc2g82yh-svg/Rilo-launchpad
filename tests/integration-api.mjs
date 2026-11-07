@@ -14,6 +14,7 @@ const signature=bs58.encode(new Uint8Array(64).fill(3));
 const hash=value=>createHash('sha256').update(value).digest('hex');
 function ticket(value){const data=Buffer.from(JSON.stringify(value)).toString('base64url');return `${data}.${createHmac('sha256',secret).update(data).digest('base64url')}`;}
 let sent=0,executed=0,failMigration=false,failTrending=false,failTokenPools=false;
+let liveCap=12345, livePrice="0.01";
 const chartRequests=[], discoveryPages=[], throttledPages=[], tokenPoolRequests=[];
 const fixture=createServer(async(request,response)=>{
   const url=new URL(request.url,'http://localhost');let result;
@@ -30,7 +31,7 @@ const fixture=createServer(async(request,response)=>{
     else if(url.pathname.includes('/ohlcv/')){chartRequests.push({path:url.pathname,aggregate:url.searchParams.get('aggregate'),side:url.searchParams.get('token')});result={data:{attributes:{ohlcv_list:[[120,1,2,1,2,30],[60,1,1,1,1,20]]}}};}
     else if(url.pathname.endsWith('/tokens/v1/solana/'+pastMint)){response.statusCode=503;response.end('{}');return;}
     else if(url.pathname.endsWith('/tokens/'+pastMint+'/pools'))result={data:[{id:'fallback-pool',attributes:{address:mint,name:'FALLBACK / SOL',base_token_price_usd:'0.01'},relationships:{base_token:{data:{id:`solana_${pastMint}`}}}}]};
-    else if(url.pathname.includes('/tokens/v1/solana/')) result=[{chainId:'solana',pairAddress:mint,baseToken:{address:token,name:'Fixture token',symbol:'TEST'},marketCap:12345,volume:{h24:1000},liquidity:{usd:5000}},{chainId:'solana',pairAddress:receiver.publicKey.toBase58(),baseToken:{address:extendedMint},fdv:67890}];
+    else if(url.pathname.includes('/tokens/v1/solana/')) result=[{chainId:'solana',pairAddress:mint,baseToken:{address:token,name:'Fixture token',symbol:'TEST'},marketCap:liveCap,priceUsd:livePrice,volume:{h24:1000},liquidity:{usd:5000}},{chainId:'solana',pairAddress:receiver.publicKey.toBase58(),baseToken:{address:extendedMint},fdv:67890}];
     else if(url.pathname.includes('/tokens/multi/')) result={data:[{id:`solana_${token}`,attributes:{launchpad_details:{completed:false,graduation_percentage:75}}},{id:`solana_${extendedMint}`,attributes:{launchpad_details:{completed:true,graduation_percentage:100,migrated_destination_pool_address:receiver.publicKey.toBase58()}}}]};
     else if(url.pathname.includes('/pools/multi/') && failMigration){response.statusCode=429;response.setHeader('Content-Type','application/json');response.end(JSON.stringify({error:'fixture rate limit'}));return;}
     else if(url.pathname.includes('/pools/multi/')) result={data:[{id:`solana_${receiver.publicKey}`,attributes:{address:receiver.publicKey.toBase58(),name:'GRAD / SOL',volume_usd:{h24:'9999'}},relationships:{base_token:{data:{id:`solana_${extendedMint}`}},dex:{data:{id:'destination-dex'}}}}]};
@@ -128,5 +129,17 @@ try{
   const profile={name:'Rilo',ticker:'RILO',description:'',website:'',x:'',image:''};
   const proof=ticket({kind:'profile',wallet:signer.publicKey.toBase58(),mint,profileHash:hash(JSON.stringify(profile)),origin:base,expiresAt:Date.now()+60000});
   assert.equal((await post('launch/prepare',{ticket:proof,profile,signature:'bad'})).status,403);
+  const beforeLive=await get('market/quotes?mints='+token);
+  liveCap=23456.78;livePrice="0.02";
+  const cachedQuote=await get('market/quotes?mints='+token);
+  assert.equal(cachedQuote.body.markets[0].marketCap,beforeLive.body.markets[0].marketCap);
+  assert.equal(cachedQuote.body.observedAt,beforeLive.body.observedAt,'cache hits retain original quote timestamps');
+  await new Promise(resolve=>setTimeout(resolve,5100));
+  const liveQuote=await get('market/quotes?mints='+token);
+  assert.equal(liveQuote.body.refreshMs,5000);
+  assert.equal(liveQuote.body.markets[0].marketCap,23456.78);
+  assert.equal(liveQuote.body.markets[0].price,0.02);
+  assert.ok(Date.parse(liveQuote.body.observedAt)>Date.parse(beforeLive.body.observedAt));
+  console.log('PASS: live cap/price updates after five-second cache expiry; quote cache timestamps remain honest.');
   console.log('PASS: integration API fixtures — feed, candles, CSRF origin, missing launch config, wallet-bound quote, swap message integrity, expired/tampered action tickets, signed submission, confirmation and forged profile rejection. No live transactions sent.');
 }finally{child.kill('SIGTERM');fixture.close();await once(child,'exit');}

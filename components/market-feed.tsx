@@ -1,9 +1,10 @@
 "use client";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import { MarketCapValue } from "@/components/market-cap-value";
 import { TokenAvatar } from "@/components/token-avatar";
 import { ApiError, rilo } from "@/lib/rilo-client";
-import { applyQuotes, FEED_REFRESH_MS, mergeFeed, quoteBatch } from "@/lib/market-feed-data";
+import { applyQuotes, FEED_REFRESH_MS, mergeFeed, liveQuoteBatches, LIVE_QUOTE_REFRESH_MS } from "@/lib/market-feed-data";
 import type { Market, MarketResponse } from "@/lib/integration-types";
 export const usd = (value: number | null, compact = false) => value === null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: compact ? "compact" : "standard", maximumFractionDigits: value > 1 ? 2 : 8 }).format(value);
 const feeds = [{ mode: "new", label: "New launches" }, { mode: "bonding", label: "Bonding" }, { mode: "graduated", label: "Graduated" }] as const;
@@ -11,11 +12,14 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
   const [mode, setMode] = useState<(typeof feeds)[number]["mode"]>("new");
   const [data, setData] = useState<MarketResponse | null>(null), [error, setError] = useState(""), [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false), [nextPage, setNextPage] = useState<number | null>(null);
+  const [quoteError, setQuoteError] = useState(""), [quoteCheckedAt, setQuoteCheckedAt] = useState<string | null>(null);
   const paused = useRef(false), pendingData = useRef<MarketResponse | null>(null);
   const more = useRef<HTMLDivElement>(null), loadMore = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
-    const abort = new AbortController(); let timer: number, retryMs = FEED_REFRESH_MS, busy = false, markets: Market[] = [], next: number | null = 1, highest = 0, refreshPage = 2, quoteOffset = 0, retryPage: number | null = null;
+    const abort = new AbortController(); let timer: number, retryMs = FEED_REFRESH_MS, busy = false, markets: Market[] = [], next: number | null = 1, highest = 0, refreshPage = 2, retryPage: number | null = null;
     let snapshot: MarketResponse | null = null, releaseTimer: number;
+    let quoteTimer: number | undefined, quoteBusy = false, quoteNotBefore = 0;
+    setQuoteError(""); setQuoteCheckedAt(null);
     const coverage = new Map<number, { stale: boolean; partial: boolean }>();
     paused.current = false; pendingData.current = null;
     const publish = (value: MarketResponse) => { if (paused.current) pendingData.current = value; else setData(value); };
@@ -51,27 +55,54 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
           else await page(1, true);
           // Rotate older pages to update stages without repeatedly downloading the entire feed.
           if (highest > 1) { await page(refreshPage); refreshPage = refreshPage >= highest ? 2 : refreshPage + 1; }
-          // Rotate one bounded quote batch per refresh instead of downloading
-          // every loaded token again. New launches and older pages also refresh.
-          const batch = quoteBatch(markets, quoteOffset); quoteOffset = batch.nextOffset;
-          if (batch.mints.length) {
-            const result = await rilo<MarketResponse>(`market/quotes?mints=${batch.mints.join(",")}`, undefined, abort.signal);
-            if (abort.signal.aborted) return;
-            markets = applyQuotes(markets, result.markets);
-            if (snapshot) { snapshot = { ...snapshot, markets }; publish(snapshot); }
-          }
+
         } catch (error) { fail(error); } finally { busy = false; }
       }
       if (!abort.signal.aborted) timer = window.setTimeout(refresh, retryMs);
     }
+    // Quotes run independently: slow stage lookups and pagination cannot hold up prices.
+    async function refreshQuotes() {
+      if (abort.signal.aborted || quoteBusy) return;
+      window.clearTimeout(quoteTimer);
+      if (document.hidden) return;
+      if (Date.now() < quoteNotBefore) { quoteTimer = window.setTimeout(refreshQuotes, quoteNotBefore - Date.now()); return; }
+      quoteBusy = true;
+      try {
+        let oldest: number | null = null;
+        for (const batch of liveQuoteBatches(markets)) {
+          if (abort.signal.aborted || document.hidden) break;
+          const result = await rilo<MarketResponse>(`market/quotes?mints=${batch.join(",")}`, undefined, abort.signal);
+          if (abort.signal.aborted) return;
+          markets = applyQuotes(markets, result.markets);
+          if (snapshot) { snapshot = { ...snapshot, markets }; publish(snapshot); }
+          if (result.markets.length) {
+            const time = Date.parse(result.observedAt);
+            if (Number.isFinite(time)) oldest = Math.min(oldest ?? time, time);
+          }
+        }
+        if (oldest !== null) setQuoteCheckedAt(new Date(oldest).toISOString());
+        setQuoteError("");
+      } catch (error) {
+        if (!abort.signal.aborted) {
+          const delay = error instanceof ApiError ? error.retryAfterMs : 20_000;
+          quoteNotBefore = Date.now() + Math.max(LIVE_QUOTE_REFRESH_MS, delay);
+          setQuoteError("Quote updates delayed · Keeping the last received values and retrying automatically.");
+        }
+      } finally {
+        quoteBusy = false;
+        if (!abort.signal.aborted && !document.hidden) quoteTimer = window.setTimeout(refreshQuotes, Math.max(LIVE_QUOTE_REFRESH_MS, quoteNotBefore - Date.now()));
+      }
+    }
+    const resumeQuotes = () => { if (document.hidden) window.clearTimeout(quoteTimer); else void refreshQuotes(); };
+    document.addEventListener("visibilitychange", resumeQuotes); window.addEventListener("online", resumeQuotes);
     async function start() {
       busy = true; setLoadingMore(true);
       try { if (next !== null) await page(next); }
       catch (error) { fail(error); }
-      finally { busy = false; if (!abort.signal.aborted) { setLoading(false); setLoadingMore(false); timer = window.setTimeout(refresh, retryMs); } }
+      finally { busy = false; if (!abort.signal.aborted) { setLoading(false); setLoadingMore(false); timer = window.setTimeout(refresh, retryMs); void refreshQuotes(); } }
     }
     void start();
-    return () => { abort.abort(); window.clearTimeout(timer); window.clearTimeout(releaseTimer); window.removeEventListener("pointerup", release); window.removeEventListener("pointercancel", release); pendingData.current = null; };
+    return () => { abort.abort(); window.clearTimeout(timer); window.clearTimeout(quoteTimer); document.removeEventListener("visibilitychange", resumeQuotes); window.removeEventListener("online", resumeQuotes); window.clearTimeout(releaseTimer); window.removeEventListener("pointerup", release); window.removeEventListener("pointercancel", release); pendingData.current = null; };
   }, [mode]);
   useEffect(() => {
     if (!more.current || nextPage === null || loadingMore || error) return;
@@ -82,12 +113,13 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
     <div className="discovery-filters" aria-label="Token stage">{feeds.map(feed => <button key={feed.mode} type="button" aria-pressed={mode === feed.mode} onClick={() => { if (mode !== feed.mode) { setData(null); setError(""); setLoading(true); setMode(feed.mode); } }}>{feed.label}</button>)}</div>
     <div style={{marginBottom:24}}>{search}</div>
     {error && !data && <p className="form-error" role="alert">{error}</p>}{loading && <p className="subtle" role="status">Loading market data…</p>}
-    <div className="market-table-wrap">{data && <table className="market-table" onPointerDownCapture={event => { if (event.isPrimary) paused.current = true; }}><thead><tr><th>Token</th><th>Market cap</th><th>24h volume</th><th>Liquidity</th><th>24h</th></tr></thead><tbody>{data.markets.map(market => <tr key={market.mint} className="market-row" onClick={() => onSelect(market)}><td><button type="button" className="token-select" aria-label={`Open ${market.symbol} token`} onClick={event => { event.stopPropagation(); onSelect(market); }}><TokenAvatar imageUrl={market.imageUrl} fallbackImageUrl={market.fallbackImageUrl} symbol={market.symbol} /><span><strong>{market.symbol}</strong><small>{market.name}</small></span></button></td><td title={market.marketCapKind === "fdv" ? "Estimated cap: fully diluted valuation; circulating supply is unverified" : "Reported market capitalization"}>{market.marketCapKind === "fdv" ? "~" : ""}{usd(market.marketCap ?? null, true)}</td><td className="white-volume">{usd(market.volume24h, true)}</td><td>{usd(market.liquidity, true)}</td><td>{market.change24h === null ? "—" : `${market.change24h > 0 ? "+" : ""}${market.change24h.toFixed(2)}%`}</td></tr>)}</tbody></table>}</div>
+    <div className="market-table-wrap">{data && <table className="market-table" onPointerDownCapture={event => { if (event.isPrimary) paused.current = true; }}><thead><tr><th>Token</th><th>Market cap</th><th>24h volume</th><th>Liquidity</th><th>24h</th></tr></thead><tbody>{data.markets.map(market => <tr key={market.mint} className="market-row" onClick={() => onSelect(market)}><td><button type="button" className="token-select" aria-label={`Open ${market.symbol} token`} onClick={event => { event.stopPropagation(); onSelect(market); }}><TokenAvatar imageUrl={market.imageUrl} fallbackImageUrl={market.fallbackImageUrl} symbol={market.symbol} /><span><strong>{market.symbol}</strong><small>{market.name}</small></span></button></td><td title={market.marketCapKind === "fdv" ? "Estimated cap: fully diluted valuation; circulating supply is unverified" : "Reported market capitalization"}><MarketCapValue market={market} /></td><td className="white-volume">{usd(market.volume24h, true)}</td><td>{usd(market.liquidity, true)}</td><td>{market.change24h === null ? "—" : `${market.change24h > 0 ? "+" : ""}${market.change24h.toFixed(2)}%`}</td></tr>)}</tbody></table>}</div>
+    {quoteError && data && <p className="form-note" role="status">{quoteError}</p>}
     {error && data && <p className="form-note" role="status">{error}</p>}
     {data?.stale && <p className="form-note" role="status">Live data is delayed. Showing the last successful snapshot from {new Date(data.observedAt).toLocaleTimeString()}; retrying automatically.</p>}
     {data?.partial && <p className="subtle" role="status">Some launch data is temporarily unavailable. Showing verified results; coverage retries automatically.</p>}
     {data && <div className="feed-pagination" ref={more}><span>{data.markets.length} tokens loaded</span>{nextPage !== null && <button type="button" className="quiet-button" disabled={loadingMore} onClick={() => void loadMore.current()}>{loadingMore ? "Loading more…" : "Load more tokens"}</button>}</div>}
-    {data && <p className="data-caption">{data.source} · Observed {new Date(data.observedAt).toLocaleTimeString()} · Refreshes every 20 seconds · ~ Estimated cap (FDV)</p>}
+    {data && <p className="data-caption">{data.source} · Observed {new Date(data.observedAt).toLocaleTimeString()} · Quotes refresh every 5 seconds{quoteCheckedAt ? ` · Quotes checked ${new Date(quoteCheckedAt).toLocaleTimeString()}` : " · Waiting for quotes"} · Discovery refreshes every 20 seconds · ~ Estimated cap (FDV)</p>}
     {data && !data.markets.length && <p className="empty-note">No {feeds.find(feed => feed.mode === mode)?.label.toLowerCase()} found in the current indexed sample.</p>}
   </section>;
 }

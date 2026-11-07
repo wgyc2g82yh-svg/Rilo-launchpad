@@ -1,7 +1,7 @@
 import "server-only";
 import { enrichArtwork } from "@/lib/token-artwork";
 import { unstable_cache } from "next/cache";
-import { capitalization, applyQuotes, FEED_REFRESH_MS, MAX_DISCOVERY_PAGE } from "@/lib/market-feed-data";
+import { capitalization, applyQuotes, FEED_REFRESH_MS, LIVE_QUOTE_REFRESH_MS, MAX_DISCOVERY_PAGE } from "@/lib/market-feed-data";
 import { launchStage } from "@/lib/launch-stage";
 import { rugcheckReport } from "@/lib/rugcheck-service";
 import { tokenImageUrl } from "@/lib/token-image";
@@ -125,16 +125,21 @@ export async function marketQuotes(mints: string[]): Promise<Market[]> {
   const load = async () => {
     const payload = await fetchProvider(`${(process.env.DEXSCREENER_API_URL || "https://api.dexscreener.com").replace(/\/$/, "")}/tokens/v1/solana/${addresses.join(",")}`);
     if (!Array.isArray(payload)) throw new IntegrationError(502, "Market quotes are unavailable.");
+    const quotedAt = new Date().toISOString();
     return payload.flatMap(pair => {
       if (pair?.chainId !== "solana" || !addresses.includes(pair.baseToken?.address) || !isSolanaAddress(pair.pairAddress)) return [];
-      return [{ ...capitalization(pair.marketCap, pair.fdv), pool: pair.pairAddress, mint: pair.baseToken.address, name: String(pair.baseToken.name || "Token"), symbol: String(pair.baseToken.symbol || "TOKEN"), imageUrl: tokenImageUrl(pair.info?.imageUrl), price: num(pair.priceUsd), volume24h: num(pair.volume?.h24), liquidity: num(pair.liquidity?.usd), change24h: num(pair.priceChange?.h24), createdAt: null, decimals: null, dex: String(pair.dexId || "DEX"), tokenSide: "base" as const }];
+      return [{ quotedAt, ...capitalization(pair.marketCap, pair.fdv), pool: pair.pairAddress, mint: pair.baseToken.address, name: String(pair.baseToken.name || "Token"), symbol: String(pair.baseToken.symbol || "TOKEN"), imageUrl: tokenImageUrl(pair.info?.imageUrl), price: num(pair.priceUsd), volume24h: num(pair.volume?.h24), liquidity: num(pair.liquidity?.usd), change24h: num(pair.priceChange?.h24), createdAt: null, decimals: null, dex: String(pair.dexId || "DEX"), tokenSide: "base" as const }];
     }).sort((a, b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
   };
-  const shared = unstable_cache(async () => ({ markets: await load(), observedAt: Date.now() }), ["market-quotes-v2", addresses.join(",")], { revalidate: 20 });
-  return cached(`market-quotes:${addresses.join(",")}`, FEED_REFRESH_MS, process.env.DEXSCREENER_API_URL ? load : async () => {
-    const value = await shared();
-    return Date.now() - value.observedAt > 60_000 ? load() : value.markets;
-  });
+  const freshLoad = () => cached(`quote-provider-live:${addresses.join(",")}`, LIVE_QUOTE_REFRESH_MS, load);
+  if (process.env.DEXSCREENER_API_URL) return freshLoad();
+  const shared = unstable_cache(async () => {
+    const markets = await freshLoad();
+    return { markets, observedAt: markets[0]?.quotedAt ? Date.parse(markets[0].quotedAt) : Date.now() };
+  }, ["market-quotes-v3", addresses.join(",")], { revalidate: LIVE_QUOTE_REFRESH_MS / 1000 });
+  const value = await shared();
+  // Reject an expired stale-while-revalidate response before it reaches the ticker.
+  return Date.now() - value.observedAt >= LIVE_QUOTE_REFRESH_MS ? freshLoad() : value.markets;
 }
 async function enrichCaps(markets: Market[]) {
   const mints = [...new Set(markets.filter(market => (market.marketCapKind !== "reported" || !market.imageUrl)).map(market => market.mint))];

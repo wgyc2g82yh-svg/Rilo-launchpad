@@ -16,7 +16,7 @@ import { createReadSnapshots } from "@/lib/read-snapshot";
 const snapshots = createReadSnapshots();
 async function marketSnapshot(key: string, ttl: number, load: () => Promise<MarketResponse>): Promise<MarketResponse> {
   const freshLoad = () => cached(`market-refresh:${key}`, ttl, load);
-  const shared = process.env.GECKO_API_URL ? freshLoad : unstable_cache(freshLoad, ["market-snapshot-v3", key], { revalidate: Math.ceil(ttl / 1000) });
+  const shared = process.env.GECKO_API_URL ? freshLoad : unstable_cache(freshLoad, ["market-snapshot-v4", key], { revalidate: Math.ceil(ttl / 1000) });
   // A long-idle Next cache can return its old value once while revalidating.
   // Refresh that value before putting it in the per-instance fresh cache.
   const sharedLoad = async () => {
@@ -71,7 +71,10 @@ async function indexedMarkets(mode: "new" | "trending", page = 1): Promise<Marke
 async function launchMarkets(page: number) {
   const load = async () => {
     // Bound provider calls: scan recent and active pools, then fetch token-level migration evidence.
-    const sources = await Promise.allSettled([indexedMarkets("new", page), indexedMarkets("trending", page)]);
+    const sources = await Promise.allSettled([
+      indexedMarkets("new", page), indexedMarkets("trending", page),
+      marketProvider(`${root()}/networks/solana/dexes/pump-fun/pools?include=base_token,quote_token,dex&page=${page}`).then(value => parseMarkets(value)),
+    ]);
     const available = sources.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
     if (!available.length) throw (sources[0] as PromiseRejectedResult).reason;
     let candidates = available.flat();
@@ -86,6 +89,7 @@ async function launchMarkets(page: number) {
         statusBatches++;
         for (const token of payload.data) {
           const mint = token.id.replace(/^solana_/, "");
+          if (!mints.includes(mint)) continue;
           details.set(mint, launchStage(token.attributes?.launchpad_details));
           tokenCaps.set(mint, capitalization(token.attributes?.market_cap_usd, token.attributes?.fdv_usd));
         }
@@ -127,9 +131,9 @@ async function launchMarkets(page: number) {
   };
   // All launch tabs share the same classified candidates. An idle Next cache
   // must refresh before old stage membership can be treated as current again.
-  const freshLoad = () => cached(`launch-markets-v4:${page}`, FEED_REFRESH_MS, load);
+  const freshLoad = () => cached(`launch-markets-v5:${page}`, FEED_REFRESH_MS, load);
   if (process.env.GECKO_API_URL) return freshLoad();
-  const shared = unstable_cache(freshLoad, ["launch-stage-page-v4", String(page)], { revalidate: FEED_REFRESH_MS / 1000 });
+  const shared = unstable_cache(freshLoad, ["launch-stage-page-v5", String(page)], { revalidate: FEED_REFRESH_MS / 1000 });
   const result = await shared();
   return Date.now() - Date.parse(result.observedAt) >= FEED_REFRESH_MS ? freshLoad() : result;
 }
@@ -165,7 +169,7 @@ async function enrichCaps(markets: Market[]) {
 export async function discoverMarkets(mode: string, page = 1): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
   if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
-  const response = await marketSnapshot(`discover-v3:${mode}:${page}`, FEED_REFRESH_MS, async () => {
+  const response = await marketSnapshot(`discover-v4:${mode}:${page}`, FEED_REFRESH_MS, async () => {
     if (mode !== "trending") {
       const launches = await launchMarkets(page), selected = launches[mode as DiscoveryMode];
       const allowed = new Set(selected.map(market => market.mint));

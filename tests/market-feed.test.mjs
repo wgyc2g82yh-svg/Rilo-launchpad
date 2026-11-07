@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { capitalization, mergeFeed, applyQuotes, positiveNumber, quoteBatch } from '../lib/market-feed-data.ts';
+import { capitalization, mergeFeed, applyQuotes, positiveNumber, quoteBatch, liveQuoteBatches, mergeMarket } from '../lib/market-feed-data.ts';
 const market=(mint,pool=mint,extra={})=>({mint,pool,...extra});
 test('pagination retains more than twenty tokens and deduplicates moving page boundaries',()=>{
  const first=Array.from({length:20},(_,i)=>market(String(i)));
@@ -45,4 +45,34 @@ test('image metadata survives provider gaps and quote images fill missing icons 
  assert.equal(result[0].fallbackImageUrl,'https://images.test/alternate.png');
  assert.equal(result[1].imageUrl,'https://images.test/b.png');
  assert.equal(applyQuotes(result,[market('b','b',{imageUrl:null})])[1].imageUrl,'https://images.test/b.png');
+});
+
+test('every loaded mint is included in the fast quote pass, with bounded requests',()=>{
+ const rows=Array.from({length:400},(_,i)=>market(String(i)));
+ const batches=liveQuoteBatches([...rows,rows[0]]);
+ assert.equal(batches.length,5);assert.ok(batches.every(batch=>batch.length<=90));
+ assert.deepEqual(batches.flat(),rows.map(row=>row.mint));
+ assert.deepEqual(liveQuoteBatches([]),[]);
+});
+test('slower discovery and older quotes cannot roll back a newer market cap or pool metrics',()=>{
+ const current=market('a','pool',{quotedAt:'2026-11-07T08:00:10Z',marketCap:150,marketCapKind:'reported',price:1.5,volume24h:100});
+ const old=market('a','pool',{quotedAt:'2026-11-07T08:00:05Z',marketCap:100,marketCapKind:'reported',price:1,volume24h:50});
+ assert.equal(applyQuotes([current],[old])[0].marketCap,150);
+ assert.equal(applyQuotes([current],[old])[0].price,1.5);
+ assert.equal(mergeFeed([current],[old])[0].marketCap,150);
+ const {quotedAt,...undated}=old;
+ assert.equal(mergeFeed([current],[undated])[0].marketCap,150);
+ assert.equal(mergeMarket(current,undated).price,1.5);
+ const migrated=mergeMarket(current,{...undated,pool:'destination',volume24h:8});
+ assert.equal(migrated.pool,'destination');assert.equal(migrated.volume24h,8);
+});
+test('fresh quotes update up and down, prefer the selected pool, and label a fresh FDV estimate',()=>{
+ const current=market('a','pool',{quotedAt:'2026-11-07T08:00:10Z',marketCap:150,marketCapKind:'reported',price:1.5});
+ const next=market('a','pool',{quotedAt:'2026-11-07T08:00:15Z',marketCap:175.25,marketCapKind:'fdv',price:1.75});
+ const other=market('a','other',{...next, pool:'other',marketCap:999,marketCapKind:'reported'});
+ const rise=applyQuotes([current],[other,next])[0];
+ assert.equal(rise.marketCap,175.25);assert.equal(rise.marketCapKind,'fdv');assert.equal(rise.price,1.75);
+ const fall=applyQuotes([rise],[{...next,quotedAt:'2026-11-07T08:00:20Z',marketCap:160.75,price:1.6}])[0];
+ assert.equal(fall.marketCap,160.75);assert.equal(fall.price,1.6);
+ assert.equal(mergeMarket(current,next).marketCap,175.25);
 });

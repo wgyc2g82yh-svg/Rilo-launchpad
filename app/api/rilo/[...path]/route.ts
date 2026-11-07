@@ -22,7 +22,11 @@ async function handle(request: NextRequest) {
       if (request.method === "GET") {
         if (path === "status") return { market: true, trading: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN && process.env.SOLANA_RPC_URL && process.env.ENABLE_MAINNET_TRANSACTIONS === "true"), rpc: Boolean(process.env.SOLANA_RPC_URL), signing: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN), launches: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN && process.env.SOLANA_RPC_URL && process.env.RILO_DBC_CONFIG && process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.SUPABASE_URL), config: process.env.RILO_DBC_CONFIG || null, treasury: process.env.RILO_TREASURY_ADDRESS || null, buybackMint: process.env.RILO_TOKEN_MINT || null, mainnetEnabled: process.env.ENABLE_MAINNET_TRANSACTIONS === "true", origin: process.env.APP_ORIGIN || null };
         if (path === "discover") return discoverMarkets(params.get("mode") || "new", Number(params.get("page") || "1"));
-        if (path === "market/quotes") return { markets: await marketQuotes((params.get("mints") || "").split(",")), observedAt: new Date().toISOString() };
+        if (path === "market/quotes") {
+          const markets = await marketQuotes((params.get("mints") || "").split(","));
+          const times = markets.map(market => Date.parse(market.quotedAt ?? "")).filter(Number.isFinite);
+          return { markets, observedAt: times.length ? new Date(Math.min(...times)).toISOString() : new Date().toISOString(), refreshMs: 5000, source: "DexScreener indexed quotes" };
+        }
         if (path === "market") return tokenMarket(address(params.get("mint")));
         if (path === "chart") return tokenChart(address(params.get("pool")), params.get("side") || "base", params.get("interval") || "5m");
         if (path === "liquidity") return tokenLiquidity(address(params.get("mint")), address(params.get("pool")));

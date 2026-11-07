@@ -160,3 +160,8 @@
 #rt .market-metrics .liquidity-lock-unlocked { color: #d79a9f; }
 #rt .market-metrics .liquidity-lock-partial { color: #ccb27f; }
 #rt .market-metrics .liquidity-lock-unknown,#rt .market-metrics .liquidity-lock-checking { color: #9297a1; }
+
+.live-market-cap { display:inline-block; white-space:nowrap; font-variant-numeric:tabular-nums; transition:color .25s ease, background-color .25s ease; border-radius:4px; }
+.live-market-cap.cap-rise { color:#90e7b1; background-color:#59d68d12; }
+.live-market-cap.cap-fall { color:#f49c9c; background-color:#ef737312; }
+@media (prefers-reduced-motion:reduce) { .live-market-cap { transition:none; } }

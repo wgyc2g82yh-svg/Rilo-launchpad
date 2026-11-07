@@ -5,10 +5,9 @@ import { rpc } from "@/lib/solana-rpc";
 import { assetImageUrls } from "@/lib/token-image";
 import type { Market } from "@/lib/integration-types";
 
-export async function enrichArtwork(markets: Market[]): Promise<Market[]> {
-  if (!process.env.SOLANA_RPC_URL) return markets;
-  const mints = [...new Set(markets.filter(market => !market.imageUrl).map(market => market.mint))].sort();
-  if (!mints.length) return markets;
+export async function resolveArtwork(mints: string[]): Promise<{ mint: string; imageUrl: string | null; fallbackImageUrl: string | null }[]> {
+  if (!process.env.SOLANA_RPC_URL || !mints.length) return [];
+  mints = [...new Set(mints)].sort();
   const artwork = new Map<string, string[]>();
   for (let offset = 0; offset < mints.length; offset += 30) {
     const ids = mints.slice(offset, offset + 30);
@@ -22,8 +21,12 @@ export async function enrichArtwork(markets: Market[]): Promise<Market[]> {
     const result = await cached(`token-artwork:${ids.join(",")}`, 60_000, shared);
     for (const item of result) artwork.set(item.mint, item.urls);
   }
+  return [...artwork].map(([mint, urls]) => ({ mint, imageUrl: urls[0] ?? null, fallbackImageUrl: urls[1] ?? null }));
+}
+export async function enrichArtwork(markets: Market[]): Promise<Market[]> {
+  const artwork = new Map((await resolveArtwork(markets.filter(market => !market.imageUrl).map(market => market.mint))).map(item => [item.mint, item]));
   return markets.map(market => {
-    const urls = artwork.get(market.mint);
-    return urls?.length ? { ...market, imageUrl: urls[0], fallbackImageUrl: urls[1] ?? market.fallbackImageUrl } : market;
+    const image = artwork.get(market.mint);
+    return image?.imageUrl ? { ...market, imageUrl: image.imageUrl, fallbackImageUrl: image.fallbackImageUrl } : market;
   });
 }

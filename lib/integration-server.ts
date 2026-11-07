@@ -50,9 +50,9 @@ export async function jsonBody(request: NextRequest, maxBytes = 20_000): Promise
   try { const data = JSON.parse(Buffer.concat(chunks).toString()); if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error(); return data; }
   catch { throw new IntegrationError(400, "Request contains invalid JSON."); }
 }
-export async function fetchProvider(url: string, init?: RequestInit): Promise<unknown> {
+export async function fetchProvider(url: string, init?: RequestInit, timeoutMs = 12_000): Promise<unknown> {
   try {
-    const response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(12_000), headers: { Accept: "application/json", ...init?.headers } });
+    const response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(timeoutMs), headers: { Accept: "application/json", ...init?.headers } });
     if (!response.ok) {
       const header = response.headers.get("Retry-After");
       const retryAfterMs = header ? /^\d+$/.test(header) ? Number(header) * 1000 : Date.parse(header) - Date.now() : 60_000;

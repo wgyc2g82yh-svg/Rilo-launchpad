@@ -9,6 +9,7 @@ import { address, submitBuiltTransaction, transactionStatus } from "@/lib/chain-
 import { analyzeWallets } from "@/lib/wallet-analysis";
 import { isSolanaAddress } from "@/lib/token-analysis";
 import { tokenLiquidity } from "@/lib/liquidity-service";
+import { resolveArtwork } from "@/lib/token-artwork";
 import { rpc } from "@/lib/solana-rpc";
 
 export const runtime = "nodejs";
@@ -21,7 +22,12 @@ async function handle(request: NextRequest) {
       const path = request.nextUrl.pathname.replace(/^\/api\/rilo\//, ""), params = request.nextUrl.searchParams;
       if (request.method === "GET") {
         if (path === "status") return { market: true, trading: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN && process.env.SOLANA_RPC_URL && process.env.ENABLE_MAINNET_TRANSACTIONS === "true"), rpc: Boolean(process.env.SOLANA_RPC_URL), signing: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN), launches: Boolean(process.env.APP_SIGNING_SECRET && process.env.APP_ORIGIN && process.env.SOLANA_RPC_URL && process.env.RILO_DBC_CONFIG && process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.SUPABASE_URL), config: process.env.RILO_DBC_CONFIG || null, treasury: process.env.RILO_TREASURY_ADDRESS || null, buybackMint: process.env.RILO_TOKEN_MINT || null, mainnetEnabled: process.env.ENABLE_MAINNET_TRANSACTIONS === "true", origin: process.env.APP_ORIGIN || null };
-        if (path === "discover") return discoverMarkets(params.get("mode") || "new", Number(params.get("page") || "1"));
+        if (path === "discover") return discoverMarkets(params.get("mode") || "new", Number(params.get("page") || "1"), params.get("expand") === "1");
+        if (path === "market/artwork") {
+          const mints = [...new Set((params.get("mints") || "").split(","))];
+          if (!mints.length || mints.length > 90 || !mints.every(isSolanaAddress)) throw new IntegrationError(400, "Choose between 1 and 90 valid token addresses.");
+          return { artwork: await resolveArtwork(mints) };
+        }
         if (path === "market/quotes") {
           const markets = await marketQuotes((params.get("mints") || "").split(","));
           const times = markets.map(market => Date.parse(market.quotedAt ?? "")).filter(Number.isFinite);

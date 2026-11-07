@@ -2,6 +2,7 @@ import "server-only";
 import { enrichArtwork } from "@/lib/token-artwork";
 import { unstable_cache } from "next/cache";
 import { capitalization, applyQuotes, FEED_REFRESH_MS, LIVE_QUOTE_REFRESH_MS, MAX_DISCOVERY_PAGE } from "@/lib/market-feed-data";
+import { rankDiscovery, eligibleDiscovery, LAUNCH_CURVE_DEXES, type DiscoveryMode } from "@/lib/discovery-policy";
 import { launchStage } from "@/lib/launch-stage";
 import { rugcheckReport } from "@/lib/rugcheck-service";
 import { tokenImageUrl } from "@/lib/token-image";
@@ -15,7 +16,7 @@ import { createReadSnapshots } from "@/lib/read-snapshot";
 const snapshots = createReadSnapshots();
 async function marketSnapshot(key: string, ttl: number, load: () => Promise<MarketResponse>): Promise<MarketResponse> {
   const freshLoad = () => cached(`market-refresh:${key}`, ttl, load);
-  const shared = process.env.GECKO_API_URL ? freshLoad : unstable_cache(freshLoad, ["market-snapshot-v2", key], { revalidate: Math.ceil(ttl / 1000) });
+  const shared = process.env.GECKO_API_URL ? freshLoad : unstable_cache(freshLoad, ["market-snapshot-v3", key], { revalidate: Math.ceil(ttl / 1000) });
   // A long-idle Next cache can return its old value once while revalidating.
   // Refresh that value before putting it in the per-instance fresh cache.
   const sharedLoad = async () => {
@@ -34,12 +35,15 @@ async function marketProvider(url: string): Promise<unknown> {
   // Share public discovery responses across serverless instances, including across tabs.
   // Keep test providers uncached by Next so fixtures remain isolated.
   if (process.env.GECKO_API_URL) return fetchProvider(url);
-  return unstable_cache(async () => {
+  const load = () => cached(`discovery-provider-v3:${url}`, FEED_REFRESH_MS, async () => {
     const wait = Math.max(0, providerSlot - Date.now());
     providerSlot = Math.max(providerSlot, Date.now()) + 2200;
     if (wait) await new Promise(resolve => setTimeout(resolve, wait));
-    return fetchProvider(url);
-  }, ["discovery-provider-v1", url], { revalidate: 30 })();
+    return { value: await fetchProvider(url), receivedAt: Date.now() };
+  });
+  const shared = unstable_cache(load, ["discovery-provider-v3", url], { revalidate: FEED_REFRESH_MS / 1000 });
+  const result = await shared();
+  return Date.now() - result.receivedAt >= FEED_REFRESH_MS ? (await load()).value : result.value;
 }
 const num = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : typeof value === "string" && value.trim() && Number.isFinite(Number(value)) ? Number(value) : null;
 type Resource = { id: string; attributes?: Record<string, unknown>; relationships?: Record<string, { data?: { id?: string } }> };
@@ -92,7 +96,7 @@ async function launchMarkets(page: number) {
       const cap = tokenCaps.get(market.mint);
       return cap?.marketCap != null && (cap.marketCapKind === "reported" || market.marketCap == null) ? { ...market, ...cap } : market;
     });
-    const bonding: Market[] = [], graduated: Market[] = [];
+    const fresh: Market[] = [], bonding: Market[] = [], graduated: Market[] = [];
     const destinations = [...new Set([...details.values()].filter(detail => detail.stage === "graduated" && isSolanaAddress(detail.destination ?? "")).map(detail => detail.destination!))];
     const migrated: Market[] = candidates.filter(market => destinations.includes(market.pool));
     const missing = destinations.filter(pool => !migrated.some(market => market.pool === pool));
@@ -101,22 +105,33 @@ async function launchMarkets(page: number) {
       const payload = await marketProvider(`${root()}/networks/solana/pools/multi/${missing.slice(offset, offset + 30).join(",")}?include=base_token,quote_token,dex`).catch(() => ({ data: [] }));
       migrated.push(...parseMarkets(payload));
     }
+    // Prefer the original curve over a secondary pool; never reset launch age on a relisting.
+    candidates.sort((a, b) => Number(LAUNCH_CURVE_DEXES.has(b.dex)) - Number(LAUNCH_CURVE_DEXES.has(a.dex)) || (Date.parse(a.createdAt ?? "") || 0) - (Date.parse(b.createdAt ?? "") || 0));
     const seen = new Set<string>();
     for (const market of candidates) {
       if (seen.has(market.mint)) continue;
       const status = details.get(market.mint);
-      if (status?.stage === "bonding") { bonding.push(market); seen.add(market.mint); }
+      if (status?.stage === "bonding") {
+        const candidate = { ...market, launchStage: status.stage, graduationProgress: status.progress, launchCreatedAt: market.createdAt };
+        if (eligibleDiscovery(candidate, "new")) fresh.push(candidate);
+        if (eligibleDiscovery(candidate, "bonding")) bonding.push(candidate);
+        seen.add(market.mint);
+      }
       if (status?.stage === "graduated") {
         // Use the destination's live metrics and pool for the terminal, never the retired curve.
         const destination = migrated.find(item => item.mint === market.mint && item.pool === status.destination);
-        if (isSolanaAddress(status.destination ?? "")) { graduated.push(destination ?? { ...market, pool: status.destination!, ...capitalization(null, null), ...tokenCaps.get(market.mint), price: null, volume24h: null, liquidity: null, change24h: null }); seen.add(market.mint); }
+        if (isSolanaAddress(status.destination ?? "")) { graduated.push({ ...(destination ?? { ...market, pool: status.destination!, ...capitalization(null, null), ...tokenCaps.get(market.mint), price: null, volume24h: null, liquidity: null, change24h: null }), launchStage: status.stage, graduationProgress: 100, launchCreatedAt: market.createdAt, graduatedAt: status.completedAt }); seen.add(market.mint); }
       }
     }
-    return { bonding, graduated, stages: [...details.entries()], hasMore: available.some(markets => markets.length >= 20), partial: available.length < sources.length || statusBatches < Math.ceil(mints.length / 30), observedAt: new Date().toISOString() };
+    return { new: rankDiscovery(fresh, "new"), bonding: rankDiscovery(bonding, "bonding"), graduated: rankDiscovery(graduated, "graduated"), stages: [...details.entries()], hasMore: available.some(markets => markets.length >= 20), partial: available.length < sources.length || statusBatches < Math.ceil(mints.length / 30), observedAt: new Date().toISOString() };
   };
-  // Bonding and Graduated share the same classified page across serverless instances.
-  return cached(`launch-markets:${page}`, 60_000, process.env.GECKO_API_URL ? load :
-    unstable_cache(load, ["launch-stage-page-v2", String(page)], { revalidate: 60 }));
+  // All launch tabs share the same classified candidates. An idle Next cache
+  // must refresh before old stage membership can be treated as current again.
+  const freshLoad = () => cached(`launch-markets-v4:${page}`, FEED_REFRESH_MS, load);
+  if (process.env.GECKO_API_URL) return freshLoad();
+  const shared = unstable_cache(freshLoad, ["launch-stage-page-v4", String(page)], { revalidate: FEED_REFRESH_MS / 1000 });
+  const result = await shared();
+  return Date.now() - Date.parse(result.observedAt) >= FEED_REFRESH_MS ? freshLoad() : result;
 }
 export async function marketQuotes(mints: string[]): Promise<Market[]> {
   if (!mints.length || mints.length > 90 || !mints.every(isSolanaAddress)) throw new IntegrationError(400, "Choose between 1 and 90 valid token addresses.");
@@ -150,16 +165,21 @@ async function enrichCaps(markets: Market[]) {
 export async function discoverMarkets(mode: string, page = 1): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
   if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
-  const ttl = mode === "bonding" || mode === "graduated" || page > 1 ? 60_000 : FEED_REFRESH_MS;
-  return marketSnapshot(`discover:${mode}:${page}`, ttl, async () => {
-    if (mode === "bonding" || mode === "graduated") {
-      const launches = await launchMarkets(page);
-      return { markets: await enrichCaps(launches[mode]), partial: launches.partial, observedAt: launches.observedAt, page, excludedMints: launches.stages.filter(([, status]) => status.stage !== null && status.stage !== mode).map(([mint]) => mint), nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana launches" };
+  const response = await marketSnapshot(`discover-v3:${mode}:${page}`, FEED_REFRESH_MS, async () => {
+    if (mode !== "trending") {
+      const launches = await launchMarkets(page), selected = launches[mode as DiscoveryMode];
+      const allowed = new Set(selected.map(market => market.mint));
+      return { markets: await enrichCaps(selected), partial: launches.partial, observedAt: launches.observedAt, page,
+        excludedMints: launches.stages.filter(([mint]) => !allowed.has(mint)).map(([mint]) => mint),
+        nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · verified launch stages" };
     }
-    const markets = await indexedMarkets(mode as "new" | "trending", page);
+    const markets = await indexedMarkets("trending", page);
     return { markets: await enrichCaps(markets), observedAt: new Date().toISOString(), page, nextPage: markets.length >= 20 && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana pools" };
   });
+  // A cached response must not keep an expired launch in the fresh-token view.
+  return mode === "trending" ? response : { ...response, markets: rankDiscovery(response.markets, mode as DiscoveryMode) };
 }
+
 export async function tokenMarket(mint: string): Promise<MarketResponse> {
   if (!isSolanaAddress(mint)) throw new IntegrationError(400, "Invalid token address.");
   return marketSnapshot(`token-market:${mint}`, 30_000, async () => {

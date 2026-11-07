@@ -15,6 +15,8 @@ const hash=value=>createHash('sha256').update(value).digest('hex');
 function ticket(value){const data=Buffer.from(JSON.stringify(value)).toString('base64url');return `${data}.${createHmac('sha256',secret).update(data).digest('base64url')}`;}
 let sent=0,executed=0,failMigration=false,failTrending=false,failTokenPools=false;
 let liveCap=12345, livePrice="0.01";
+const freshMint=Keypair.generate().publicKey.toBase58();
+let fixtureProgress=85;
 const chartRequests=[], discoveryPages=[], throttledPages=[], tokenPoolRequests=[];
 const fixture=createServer(async(request,response)=>{
   const url=new URL(request.url,'http://localhost');let result;
@@ -32,10 +34,10 @@ const fixture=createServer(async(request,response)=>{
     else if(url.pathname.endsWith('/tokens/v1/solana/'+pastMint)){response.statusCode=503;response.end('{}');return;}
     else if(url.pathname.endsWith('/tokens/'+pastMint+'/pools'))result={data:[{id:'fallback-pool',attributes:{address:mint,name:'FALLBACK / SOL',base_token_price_usd:'0.01'},relationships:{base_token:{data:{id:`solana_${pastMint}`}}}}]};
     else if(url.pathname.includes('/tokens/v1/solana/')) result=[{chainId:'solana',pairAddress:mint,baseToken:{address:token,name:'Fixture token',symbol:'TEST'},marketCap:liveCap,priceUsd:livePrice,volume:{h24:1000},liquidity:{usd:5000}},{chainId:'solana',pairAddress:receiver.publicKey.toBase58(),baseToken:{address:extendedMint},fdv:67890}];
-    else if(url.pathname.includes('/tokens/multi/')) result={data:[{id:`solana_${token}`,attributes:{launchpad_details:{completed:false,graduation_percentage:75}}},{id:`solana_${extendedMint}`,attributes:{launchpad_details:{completed:true,graduation_percentage:100,migrated_destination_pool_address:receiver.publicKey.toBase58()}}}]};
+    else if(url.pathname.includes('/tokens/multi/')) result={data:[{id:`solana_${token}`,attributes:{launchpad_details:{completed:false,graduation_percentage:fixtureProgress}}},{id:`solana_${freshMint}`,attributes:{launchpad_details:{completed:false,graduation_percentage:5}}},{id:`solana_${extendedMint}`,attributes:{launchpad_details:{completed:true,graduation_percentage:100,migrated_destination_pool_address:receiver.publicKey.toBase58()}}}]};
     else if(url.pathname.includes('/pools/multi/') && failMigration){response.statusCode=429;response.setHeader('Content-Type','application/json');response.end(JSON.stringify({error:'fixture rate limit'}));return;}
     else if(url.pathname.includes('/pools/multi/')) result={data:[{id:`solana_${receiver.publicKey}`,attributes:{address:receiver.publicKey.toBase58(),name:'GRAD / SOL',volume_usd:{h24:'9999'}},relationships:{base_token:{data:{id:`solana_${extendedMint}`}},dex:{data:{id:'destination-dex'}}}}]};
-    else result={data:[{id:`solana_${mint}`,attributes:{address:mint,name:'RILO / SOL',base_token_price_usd:'0.01',volume_usd:{h24:'1000'},reserve_in_usd:'5000',price_change_percentage:{h24:'2.5'},pool_created_at:'2026-01-01T00:00:00Z'},relationships:{base_token:{data:{id:`solana_${token}`}},quote_token:{data:{id:`solana_${mint}`}},dex:{data:{id:'test-dex'}}}},{id:`solana_${signer.publicKey}`,attributes:{address:signer.publicKey.toBase58(),name:'GRAD / SOL'},relationships:{base_token:{data:{id:`solana_${extendedMint}`}}}}],included:[{id:`solana_${token}`,attributes:{name:'Fixture token',symbol:'TEST',decimals:6,image_url:'https://example.com/token.png'}}]};
+    else result={data:[{id:`solana_${mint}`,attributes:{address:mint,name:'RILO / SOL',base_token_price_usd:'0.01',volume_usd:{h24:'1000'},reserve_in_usd:'5000',price_change_percentage:{h24:'2.5'},pool_created_at:new Date(Date.now()-60000).toISOString()},relationships:{base_token:{data:{id:`solana_${token}`}},quote_token:{data:{id:`solana_${mint}`}},dex:{data:{id:'pump-fun'}}}},{id:`solana_${signer.publicKey}`,attributes:{address:signer.publicKey.toBase58(),name:'GRAD / SOL'},relationships:{base_token:{data:{id:`solana_${extendedMint}`}}}},{id:'fresh-pool',attributes:{address:earlyWallet,name:'NEW / SOL',pool_created_at:new Date(Date.now()-30000).toISOString()},relationships:{base_token:{data:{id:`solana_${freshMint}`}},dex:{data:{id:'pump-fun'}}}}],included:[{id:`solana_${token}`,attributes:{name:'Fixture token',symbol:'TEST',decimals:6,image_url:'https://example.com/token.png'}}]};
     if(url.pathname.endsWith('/new_pools') || url.pathname.endsWith('/trending_pools')) discoveryPages.push(url.searchParams.get('page'));
     response.setHeader('Content-Type','application/json');response.end(JSON.stringify(result));return;
   }
@@ -74,18 +76,18 @@ try{
   for(const page of ['0','11','1.5','nope'])assert.equal((await get('discover?mode=new&page='+page)).status,400);
   const quotes=await get('market/quotes?mints='+token);assert.equal(quotes.status,200);assert.equal(quotes.body.markets[0].marketCap,12345);
   assert.equal((await get('market/quotes?mints=invalid')).status,400);
-  const fresh=await get('discover?mode=new');assert.equal(fresh.status,200);assert.equal(fresh.body.markets.length,2);assert.equal(fresh.body.markets.find(m=>m.mint===extendedMint).imageUrl,'https://example.com/'+extendedMint+'.png','missing feed and quote images recover from mint-matched DAS metadata');
+  const fresh=await get('discover?mode=new');assert.equal(fresh.status,200);assert.equal(fresh.body.markets.length,1);assert.equal(fresh.body.markets[0].mint,freshMint);assert.equal(fresh.body.markets[0].imageUrl,'https://example.com/'+freshMint+'.png','missing feed and quote images recover from mint-matched DAS metadata');
   const bonding=await get('discover?mode=bonding');assert.equal(bonding.status,200);assert.deepEqual(bonding.body.markets.map(m=>m.mint),[token]);
   const graduated=await get('discover?mode=graduated');assert.equal(graduated.status,200);assert.deepEqual(graduated.body.markets.map(m=>m.mint),[extendedMint]);assert.equal(graduated.body.markets[0].pool,receiver.publicKey.toBase58());assert.equal(graduated.body.markets[0].marketCap,67890);assert.equal(graduated.body.markets[0].marketCapKind,'fdv');assert.equal(graduated.body.markets[0].volume24h,9999,'graduated token uses destination pool metrics');
   failMigration=true;
-  const partialBonding=await get('discover?mode=bonding&page=2');assert.equal(partialBonding.status,200);assert.equal(partialBonding.body.markets[0].mint,token);
-  const partialGraduated=await get('discover?mode=graduated&page=2');assert.equal(partialGraduated.status,200);assert.equal(partialGraduated.body.markets[0].pool,receiver.publicKey.toBase58());assert.equal(partialGraduated.body.markets[0].volume24h,null,'unavailable destination metrics never reuse the retired curve');
+  const partialBonding=await get('discover?mode=bonding&page=3');assert.equal(partialBonding.status,200);assert.equal(partialBonding.body.markets[0].mint,token);
+  const partialGraduated=await get('discover?mode=graduated&page=3');assert.equal(partialGraduated.status,200);assert.equal(partialGraduated.body.markets[0].pool,receiver.publicKey.toBase58());assert.equal(partialGraduated.body.markets[0].volume24h,null,'unavailable destination metrics never reuse the retired curve');
   failMigration=false;
   failTrending=true;
-  const survivingBonding=await get('discover?mode=bonding&page=3');assert.equal(survivingBonding.status,200);assert.equal(survivingBonding.body.markets[0].mint,token);assert.equal(survivingBonding.body.partial,true,'one throttled candidate source does not discard verified launches');
-  const survivingGraduated=await get('discover?mode=graduated&page=3');assert.equal(survivingGraduated.status,200);assert.equal(survivingGraduated.body.markets[0].pool,receiver.publicKey.toBase58());
-  const throttled=await get('discover?mode=trending&page=4');assert.equal(throttled.status,429);assert.equal(throttled.retryAfter,'120');
-  assert.equal((await get('discover?mode=trending&page=4')).status,429);assert.equal(throttledPages.filter(page=>page==='4').length,1,'cold failures respect upstream backoff instead of repeating the provider request');
+  const survivingBonding=await get('discover?mode=bonding&page=4');assert.equal(survivingBonding.status,200);assert.equal(survivingBonding.body.markets[0].mint,token);assert.equal(survivingBonding.body.partial,true,'one throttled candidate source does not discard verified launches');
+  const survivingGraduated=await get('discover?mode=graduated&page=4');assert.equal(survivingGraduated.status,200);assert.equal(survivingGraduated.body.markets[0].pool,receiver.publicKey.toBase58());
+  const throttled=await get('discover?mode=trending&page=5');assert.equal(throttled.status,429);assert.equal(throttled.retryAfter,'120');
+  assert.equal((await get('discover?mode=trending&page=5')).status,429);assert.equal(throttledPages.filter(page=>page==='5').length,1,'cold failures respect upstream backoff instead of repeating the provider request');
   failTrending=false;
   const tokenMarket=await get(`market?mint=${token}`);assert.equal(tokenMarket.status,200);assert.equal(tokenMarket.body.markets[0].marketCap,12345);assert.equal(tokenMarket.body.markets[0].decimals,null);assert.equal(tokenPoolRequests.length,0,'indexed token quotes avoid another call to the constrained discovery provider');
   failTokenPools=true;
@@ -129,6 +131,12 @@ try{
   const profile={name:'Rilo',ticker:'RILO',description:'',website:'',x:'',image:''};
   const proof=ticket({kind:'profile',wallet:signer.publicKey.toBase58(),mint,profileHash:hash(JSON.stringify(profile)),origin:base,expiresAt:Date.now()+60000});
   assert.equal((await post('launch/prepare',{ticket:proof,profile,signature:'bad'})).status,403);
+  fixtureProgress=20;
+  const earlyStage=await get('discover?mode=new&page=6');assert.equal(earlyStage.status,200);assert.ok(earlyStage.body.markets.some(m=>m.mint===token));
+  assert.ok(!(await get('discover?mode=bonding&page=6')).body.markets.some(m=>m.mint===token));
+  fixtureProgress=97;
+  const nearing=await get('discover?mode=bonding&page=7');assert.equal(nearing.status,200);assert.equal(nearing.body.markets.find(m=>m.mint===token).graduationProgress,97);
+  const afterMove=await get('discover?mode=new&page=7');assert.ok(!afterMove.body.markets.some(m=>m.mint===token));assert.ok(afterMove.body.excludedMints.includes(token));
   const beforeLive=await get('market/quotes?mints='+token);
   liveCap=23456.78;livePrice="0.02";
   const cachedQuote=await get('market/quotes?mints='+token);

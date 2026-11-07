@@ -165,3 +165,6 @@
 .live-market-cap.cap-rise { color:#90e7b1; background-color:#59d68d12; }
 .live-market-cap.cap-fall { color:#f49c9c; background-color:#ef737312; }
 @media (prefers-reduced-motion:reduce) { .live-market-cap { transition:none; } }
+
+.feed-policy { color:#aaaab4; font-size:12px; margin:0 0 18px; }
+.token-select .token-stage-meta { color:#bfc2c9; font-size:10px; letter-spacing:.02em; margin-top:4px; }

@@ -14,34 +14,41 @@ import { cached, fetchProvider, IntegrationError } from "@/lib/integration-serve
 import { createReadSnapshots } from "@/lib/read-snapshot";
 
 const snapshots = createReadSnapshots();
-async function marketSnapshot(key: string, ttl: number, load: () => Promise<MarketResponse>): Promise<MarketResponse> {
+async function marketSnapshot(key: string, ttl: number, load: () => Promise<MarketResponse>, quick = false): Promise<MarketResponse> {
   const freshLoad = () => cached(`market-refresh:${key}`, ttl, load);
   const shared = process.env.GECKO_API_URL ? freshLoad : unstable_cache(freshLoad, ["market-snapshot-v4", key], { revalidate: Math.ceil(ttl / 1000) });
   // A long-idle Next cache can return its old value once while revalidating.
   // Refresh that value before putting it in the per-instance fresh cache.
   const sharedLoad = async () => {
     const value = await shared();
-    return Date.now() - Date.parse(value.observedAt) > ttl ? freshLoad() : value;
+    const age = Date.now() - Date.parse(value.observedAt);
+    // Next refreshes stale shared entries in the background. Recent display-only
+    // discovery rows can render immediately while that refresh runs.
+    if (quick && age > ttl && age <= 60_000) return { ...value, stale: true };
+    return age > ttl ? freshLoad() : value;
   };
   const result = await snapshots.read(key, ttl, sharedLoad);
   const age = Date.now() - Date.parse(result.value.observedAt);
   if (!Number.isFinite(age) || age > 300_000) throw new IntegrationError(502, "Market data is temporarily unavailable. Refreshing automatically.");
-  return { ...result.value, stale: result.stale || age > ttl * 2 };
+  return { ...result.value, stale: result.stale || Boolean(result.value.stale) || age > ttl * 2 };
 }
 
 const root = () => (process.env.GECKO_API_URL || "https://api.geckoterminal.com/api/v2").replace(/\/$/, "");
-let providerSlot = 0;
+let providerRetryAt = 0;
+let providerFailure: unknown;
 async function marketProvider(url: string): Promise<unknown> {
   // Share public discovery responses across serverless instances, including across tabs.
   // Keep test providers uncached by Next so fixtures remain isolated.
   if (process.env.GECKO_API_URL) return fetchProvider(url);
-  const load = () => cached(`discovery-provider-v3:${url}`, FEED_REFRESH_MS, async () => {
-    const wait = Math.max(0, providerSlot - Date.now());
-    providerSlot = Math.max(providerSlot, Date.now()) + 2200;
-    if (wait) await new Promise(resolve => setTimeout(resolve, wait));
-    return { value: await fetchProvider(url), receivedAt: Date.now() };
+  const load = () => cached(`discovery-provider-v4:${url}`, FEED_REFRESH_MS, async () => {
+    if (Date.now() < providerRetryAt) throw providerFailure;
+    try { return { value: await fetchProvider(url, undefined, 5_000), receivedAt: Date.now() }; }
+    catch (error) {
+      if (error instanceof IntegrationError && error.status === 429) { providerRetryAt = Date.now() + (error.retryAfterMs ?? 60_000); providerFailure = error; }
+      throw error;
+    }
   });
-  const shared = unstable_cache(load, ["discovery-provider-v3", url], { revalidate: FEED_REFRESH_MS / 1000 });
+  const shared = unstable_cache(load, ["discovery-provider-v4", url], { revalidate: FEED_REFRESH_MS / 1000 });
   const result = await shared();
   return Date.now() - result.receivedAt >= FEED_REFRESH_MS ? (await load()).value : result.value;
 }
@@ -66,15 +73,15 @@ function parseMarkets(value: unknown, mint?: string): Market[] {
   });
 }
 async function indexedMarkets(mode: "new" | "trending", page = 1): Promise<Market[]> {
-  return cached(`indexed-markets:${mode}:${page}`, page === 1 ? FEED_REFRESH_MS : 60_000, async () => parseMarkets(await marketProvider(`${root()}/networks/solana/${mode === "new" ? "new_pools" : "trending_pools"}?include=base_token,quote_token,dex&page=${page}`)));
+  return parseMarkets(await marketProvider(`${root()}/networks/solana/${mode === "new" ? "new_pools" : "trending_pools"}?include=base_token,quote_token,dex&page=${page}`));
 }
-async function launchMarkets(page: number) {
+async function launchMarkets(page: number, mode: DiscoveryMode, expanded: boolean) {
   const load = async () => {
     // Bound provider calls: scan recent and active pools, then fetch token-level migration evidence.
-    const sources = await Promise.allSettled([
-      indexedMarkets("new", page), indexedMarkets("trending", page),
-      marketProvider(`${root()}/networks/solana/dexes/pump-fun/pools?include=base_token,quote_token,dex&page=${page}`).then(value => parseMarkets(value)),
-    ]);
+    const curve = () => marketProvider(`${root()}/networks/solana/dexes/pump-fun/pools?include=base_token,quote_token,dex&page=${page}`).then(value => parseMarkets(value));
+    // First paint needs one relevant candidate source and its stage proof only.
+    // Broader coverage is a separate request, never a barrier to initial rows.
+    const sources = await Promise.allSettled(expanded ? [indexedMarkets("new", page), indexedMarkets("trending", page), curve()] : [mode === "bonding" ? curve() : indexedMarkets("new", page)]);
     const available = sources.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
     if (!available.length) throw (sources[0] as PromiseRejectedResult).reason;
     let candidates = available.flat();
@@ -82,7 +89,8 @@ async function launchMarkets(page: number) {
     const details = new Map<string, ReturnType<typeof launchStage>>();
     const tokenCaps = new Map<string, ReturnType<typeof capitalization>>();
     let statusBatches = 0, statusError: unknown;
-    for (let offset = 0; offset < mints.length; offset += 30) {
+    await Promise.all(Array.from({ length: Math.ceil(mints.length / 30) }, async (_, index) => {
+      const offset = index * 30;
       try {
         const payload = await marketProvider(`${root()}/networks/solana/tokens/multi/${mints.slice(offset, offset + 30).join(",")}`) as { data?: Resource[] };
         if (!Array.isArray(payload?.data)) throw new IntegrationError(502, "Launch status data is unavailable.");
@@ -94,7 +102,7 @@ async function launchMarkets(page: number) {
           tokenCaps.set(mint, capitalization(token.attributes?.market_cap_usd, token.attributes?.fdv_usd));
         }
       } catch (error) { statusError = error; }
-    }
+    }));
     if (mints.length && !statusBatches) throw statusError;
     candidates = candidates.map(market => {
       const cap = tokenCaps.get(market.mint);
@@ -104,7 +112,7 @@ async function launchMarkets(page: number) {
     const destinations = [...new Set([...details.values()].filter(detail => detail.stage === "graduated" && isSolanaAddress(detail.destination ?? "")).map(detail => detail.destination!))];
     const migrated: Market[] = candidates.filter(market => destinations.includes(market.pool));
     const missing = destinations.filter(pool => !migrated.some(market => market.pool === pool));
-    for (let offset = 0; offset < missing.length; offset += 30) {
+    for (let offset = 0; expanded && mode === "graduated" && offset < missing.length; offset += 30) {
       // Extra pool metrics must not take down otherwise verified launch-stage results.
       const payload = await marketProvider(`${root()}/networks/solana/pools/multi/${missing.slice(offset, offset + 30).join(",")}?include=base_token,quote_token,dex`).catch(() => ({ data: [] }));
       migrated.push(...parseMarkets(payload));
@@ -124,16 +132,24 @@ async function launchMarkets(page: number) {
       if (status?.stage === "graduated") {
         // Use the destination's live metrics and pool for the terminal, never the retired curve.
         const destination = migrated.find(item => item.mint === market.mint && item.pool === status.destination);
-        if (isSolanaAddress(status.destination ?? "")) { graduated.push({ ...(destination ?? { ...market, pool: status.destination!, ...capitalization(null, null), ...tokenCaps.get(market.mint), price: null, volume24h: null, liquidity: null, change24h: null }), launchStage: status.stage, graduationProgress: 100, launchCreatedAt: market.createdAt, graduatedAt: status.completedAt }); seen.add(market.mint); }
+        if (isSolanaAddress(status.destination ?? "")) {
+          const metrics = destination ?? { ...market, ...capitalization(null, null), pool: status.destination!, price: null, volume24h: null, liquidity: null, change24h: null };
+          const cap = tokenCaps.get(market.mint);
+          graduated.push({ ...metrics,
+            ...(cap?.marketCap != null && (metrics.marketCap == null || cap.marketCapKind === "reported") ? cap : {}),
+            imageUrl: metrics.imageUrl || market.imageUrl,
+            launchStage: status.stage, graduationProgress: 100, launchCreatedAt: market.createdAt, graduatedAt: status.completedAt });
+          seen.add(market.mint);
+        }
       }
     }
     return { new: rankDiscovery(fresh, "new"), bonding: rankDiscovery(bonding, "bonding"), graduated: rankDiscovery(graduated, "graduated"), stages: [...details.entries()], hasMore: available.some(markets => markets.length >= 20), partial: available.length < sources.length || statusBatches < Math.ceil(mints.length / 30), observedAt: new Date().toISOString() };
   };
   // All launch tabs share the same classified candidates. An idle Next cache
   // must refresh before old stage membership can be treated as current again.
-  const freshLoad = () => cached(`launch-markets-v5:${page}`, FEED_REFRESH_MS, load);
+  const freshLoad = () => cached(`launch-markets-v6:${mode}:${expanded}:${page}`, FEED_REFRESH_MS, load);
   if (process.env.GECKO_API_URL) return freshLoad();
-  const shared = unstable_cache(freshLoad, ["launch-stage-page-v5", String(page)], { revalidate: FEED_REFRESH_MS / 1000 });
+  const shared = unstable_cache(freshLoad, ["launch-stage-page-v6", mode, String(expanded), String(page)], { revalidate: FEED_REFRESH_MS / 1000 });
   const result = await shared();
   return Date.now() - Date.parse(result.observedAt) >= FEED_REFRESH_MS ? freshLoad() : result;
 }
@@ -166,20 +182,20 @@ async function enrichCaps(markets: Market[]) {
   for (let offset = 0; offset < mints.length; offset += 30) quotes.push(...await marketQuotes(mints.slice(offset, offset + 30)).catch(() => []));
   return enrichArtwork(applyQuotes(markets, quotes));
 }
-export async function discoverMarkets(mode: string, page = 1): Promise<MarketResponse> {
+export async function discoverMarkets(mode: string, page = 1, expanded = false): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
   if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
-  const response = await marketSnapshot(`discover-v4:${mode}:${page}`, FEED_REFRESH_MS, async () => {
+  const response = await marketSnapshot(`discover-fast-v1:${mode}:${expanded}:${page}`, FEED_REFRESH_MS, async () => {
     if (mode !== "trending") {
-      const launches = await launchMarkets(page), selected = launches[mode as DiscoveryMode];
+      const launches = await launchMarkets(page, mode as DiscoveryMode, expanded), selected = launches[mode as DiscoveryMode];
       const allowed = new Set(selected.map(market => market.mint));
-      return { markets: await enrichCaps(selected), partial: launches.partial, observedAt: launches.observedAt, page,
+      return { markets: selected, expanded, expandable: !expanded, partial: launches.partial, observedAt: launches.observedAt, page,
         excludedMints: launches.stages.filter(([mint]) => !allowed.has(mint)).map(([mint]) => mint),
         nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · verified launch stages" };
     }
     const markets = await indexedMarkets("trending", page);
     return { markets: await enrichCaps(markets), observedAt: new Date().toISOString(), page, nextPage: markets.length >= 20 && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana pools" };
-  });
+  }, mode !== "trending");
   // A cached response must not keep an expired launch in the fresh-token view.
   return mode === "trending" ? response : { ...response, markets: rankDiscovery(response.markets, mode as DiscoveryMode) };
 }

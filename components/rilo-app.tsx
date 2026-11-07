@@ -7,6 +7,7 @@ import { Star, XIcon } from "@/components/icons";
 import { WalletButton } from "@/components/wallet-button";
 import { LaunchForm } from "@/components/launch-form";
 import { WalletProvider } from "@/components/wallet-provider";
+import { prefetchDiscovery } from "@/lib/discovery-client";
 import { MarketFeed } from "@/components/market-feed";
 import { MarketTerminal } from "@/components/market-terminal";
 import { formatSupply, isSolanaAddress } from "@/lib/token-analysis";
@@ -40,12 +41,13 @@ function RiloDashboard() {
 
   useEffect(() => {
     const abort = new AbortController();
+    const preload = window.setTimeout(() => prefetchDiscovery("new"), 1200);
     fetch("/api/solana/status", { signal: abort.signal }).then(response => response.json()).then(setStatus).catch(() => {});
     try {
       const raw: unknown = JSON.parse(localStorage.getItem(WATCH_KEY) ?? "[]");
       if (Array.isArray(raw)) setWatch(raw.filter((item): item is SavedMint => typeof item?.mint === "string" && isSolanaAddress(item.mint)).slice(0, 50));
     } catch { setStorageNotice("Your watchlist could not be restored on this device."); }
-    return () => { abort.abort(); controller.current?.abort(); };
+    return () => { abort.abort(); window.clearTimeout(preload); controller.current?.abort(); };
   }, []);
   useEffect(() => { if (watchOpen) watchDialog.current?.showModal(); else watchDialog.current?.close(); }, [watchOpen]);
 

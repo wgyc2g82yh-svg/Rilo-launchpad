@@ -147,11 +147,13 @@ async function launchMarkets(page: number, mode: DiscoveryMode, expanded: boolea
   };
   // All launch tabs share the same classified candidates. An idle Next cache
   // must refresh before old stage membership can be treated as current again.
-  const freshLoad = () => cached(`launch-markets-v6:${mode}:${expanded}:${page}`, FEED_REFRESH_MS, load);
+  const ttl = expanded ? 60_000 : FEED_REFRESH_MS;
+  const group = expanded ? mode === "graduated" ? "all-graduated" : "all" : mode === "bonding" ? "curves" : "new";
+  const freshLoad = () => cached(`launch-markets-v7:${group}:${page}`, ttl, load);
   if (process.env.GECKO_API_URL) return freshLoad();
-  const shared = unstable_cache(freshLoad, ["launch-stage-page-v6", mode, String(expanded), String(page)], { revalidate: FEED_REFRESH_MS / 1000 });
+  const shared = unstable_cache(freshLoad, ["launch-stage-page-v7", group, String(page)], { revalidate: ttl / 1000 });
   const result = await shared();
-  return Date.now() - Date.parse(result.observedAt) >= FEED_REFRESH_MS ? freshLoad() : result;
+  return Date.now() - Date.parse(result.observedAt) >= ttl ? freshLoad() : result;
 }
 export async function marketQuotes(mints: string[]): Promise<Market[]> {
   if (!mints.length || mints.length > 90 || !mints.every(isSolanaAddress)) throw new IntegrationError(400, "Choose between 1 and 90 valid token addresses.");
@@ -185,13 +187,13 @@ async function enrichCaps(markets: Market[]) {
 export async function discoverMarkets(mode: string, page = 1, expanded = false): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
   if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
-  const response = await marketSnapshot(`discover-fast-v1:${mode}:${expanded}:${page}`, FEED_REFRESH_MS, async () => {
+  const response = await marketSnapshot(`discover-fast-v2:${mode}:${expanded}:${page}`, expanded ? 60_000 : FEED_REFRESH_MS, async () => {
     if (mode !== "trending") {
       const launches = await launchMarkets(page, mode as DiscoveryMode, expanded), selected = launches[mode as DiscoveryMode];
       const allowed = new Set(selected.map(market => market.mint));
       return { markets: selected, expanded, expandable: !expanded, partial: launches.partial, observedAt: launches.observedAt, page,
         excludedMints: launches.stages.filter(([mint]) => !allowed.has(mint)).map(([mint]) => mint),
-        nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · verified launch stages" };
+        nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: expanded ? 60_000 : FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · verified launch stages" };
     }
     const markets = await indexedMarkets("trending", page);
     return { markets: await enrichCaps(markets), observedAt: new Date().toISOString(), page, nextPage: markets.length >= 20 && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana pools" };

@@ -26,3 +26,13 @@ export function tokenImageCandidates(...values: unknown[]): string[] {
   }
   return [...new Set([...sources, ...gateways])].slice(0, 6);
 }
+
+// DAS responses may include unrelated or non-image files. Match the mint explicitly.
+export function assetImageUrls(value: unknown, mint: string): string[] {
+  if (!value || typeof value !== "object") return [];
+  const asset = value as { id?: unknown; content?: { links?: { image?: unknown }; files?: { uri?: unknown; cdn_uri?: unknown; mime?: unknown }[] } };
+  if (asset.id !== mint) return [];
+  const files = Array.isArray(asset.content?.files) ? asset.content.files : [];
+  const images = files.filter(file => file && typeof file.mime === "string" && file.mime.startsWith("image/"));
+  return [...new Set([asset.content?.links?.image, ...images.flatMap(file => [file.cdn_uri, file.uri])].map(tokenImageUrl).filter((url): url is string => Boolean(url)))].slice(0, 2);
+}

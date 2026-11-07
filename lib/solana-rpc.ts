@@ -4,7 +4,7 @@ export class RpcError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
-export async function rpc<T>(method: string, params: unknown[] = []): Promise<T> {
+export async function rpc<T>(method: string, params: unknown[] | Record<string, unknown> = []): Promise<T> {
   const endpoint = process.env.SOLANA_RPC_URL;
   if (!endpoint) throw new RpcError(503, "Live scans need a Solana RPC connection. Configure SOLANA_RPC_URL on your host.");
   // Only an operator-controlled endpoint is used. No arbitrary upstream URLs from requests.

@@ -21,3 +21,11 @@ test('DAS artwork must match the mint and only exposes sanitized image files',()
  assert.deepEqual(assetImageUrls(asset,'a'),[`https://ipfs.io/ipfs/${cid}/logo.png`,'https://cdn.example.com/logo.png']);
  assert.deepEqual(assetImageUrls({id:'a',content:{files:[null,{}, {mime:'image/png',uri:'http://example.com/a.png'}]}},'a'),[]);
 });
+
+test('raw IPFS CIDs and Lens-wrapped artwork recover real image URLs',()=>{
+ const rawCid='bafkreicahpt6qnhu4h4k2jjjvjkpadtunjf3i4hsbkuqdoqja33d5nlxy4';
+ assert.ok(tokenImageCandidates('https://ipfs.io/ipfs/'+rawCid).includes('https://gateway.pinata.cloud/ipfs/'+rawCid));
+ assert.equal(tokenImageUrl('https://lens.google.com/uploadbyurl?url=https://gmgn.ai/external-res/logo.webp'),'https://gmgn.ai/external-res/logo.webp');
+ assert.equal(tokenImageUrl('https://lens.google.com/uploadbyurl?url=javascript:alert(1)'),null);
+ assert.equal(tokenImageUrl('https://lens.google.com/uploadbyurl?url=http://example.com/logo.png'),null);
+});

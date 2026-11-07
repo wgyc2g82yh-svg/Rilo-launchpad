@@ -3,7 +3,14 @@ export function tokenImageUrl(value: unknown): string | null {
   const raw = value.trim();
   const candidate = raw.startsWith("ipfs://") ? `https://ipfs.io/ipfs/${raw.slice(7).replace(/^ipfs\//, "")}` : raw.startsWith("ar://") ? `https://arweave.net/${raw.slice(5)}` : raw;
   try {
-    const url = new URL(candidate);
+    let url = new URL(candidate);
+    // Some token metadata stores a Google Lens wrapper instead of the artwork.
+    // Unwrap only this known URL format, then apply the normal URL checks.
+    if (url.hostname === "lens.google.com" && url.pathname === "/uploadbyurl") {
+      const target = url.searchParams.get("url");
+      if (!target) return null;
+      url = new URL(target);
+    }
     if (url.protocol !== "https:" || url.username || url.password || /(?:^|\/)missing\.(png|svg)(?:$|\?)/i.test(url.pathname)) return null;
     return url.href;
   } catch { return null; }
@@ -18,7 +25,7 @@ export function tokenImageCandidates(...values: unknown[]): string[] {
     const path = url.pathname.match(/^\/ipfs\/([^/]+)(.*)$/);
     const subdomain = url.hostname.match(/^([^.]+)\.ipfs\./);
     const cid = path?.[1] ?? subdomain?.[1];
-    if (!cid || !/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[a-z2-7]+)$/.test(cid)) continue;
+    if (!cid || !/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|baf[a-z2-7]+)$/.test(cid)) continue;
     const suffix = path?.[2] ?? url.pathname;
     for (const host of ["https://ipfs.io", "https://gateway.pinata.cloud", "https://dweb.link"]) {
       gateways.push(`${host}/ipfs/${cid}${suffix}${url.search}`);

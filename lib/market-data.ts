@@ -1,4 +1,5 @@
 import "server-only";
+import { enrichArtwork } from "@/lib/token-artwork";
 import { unstable_cache } from "next/cache";
 import { capitalization, applyQuotes, FEED_REFRESH_MS, MAX_DISCOVERY_PAGE } from "@/lib/market-feed-data";
 import { launchStage } from "@/lib/launch-stage";
@@ -136,10 +137,10 @@ export async function marketQuotes(mints: string[]): Promise<Market[]> {
   });
 }
 async function enrichCaps(markets: Market[]) {
-  const mints = [...new Set(markets.filter(market => market.marketCapKind !== "reported").map(market => market.mint))];
+  const mints = [...new Set(markets.filter(market => (market.marketCapKind !== "reported" || !market.imageUrl)).map(market => market.mint))];
   const quotes: Market[] = [];
   for (let offset = 0; offset < mints.length; offset += 30) quotes.push(...await marketQuotes(mints.slice(offset, offset + 30)).catch(() => []));
-  return applyQuotes(markets, quotes);
+  return enrichArtwork(applyQuotes(markets, quotes));
 }
 export async function discoverMarkets(mode: string, page = 1): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
@@ -167,7 +168,7 @@ export async function tokenMarket(mint: string): Promise<MarketResponse> {
     const count = report?.mint === mint ? report.totalHolders : undefined;
     const totalHolders = typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null;
     if (pools === null && pairs === null) throw new IntegrationError(502, "Market providers are temporarily unavailable. Try again shortly.");
-    const markets = applyQuotes(pools?.length ? pools : pairs ?? [], pairs ?? []).sort((a,b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
+    const markets = (await enrichArtwork(applyQuotes(pools?.length ? pools : pairs ?? [], pairs ?? []))).sort((a,b) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
     return { markets, refreshMs: 30_000, partial: !pairs?.length && (pools === null || pairs === null), totalHolders, observedAt: new Date().toISOString(), source: pairs?.length ? "DexScreener · RugCheck" : "GeckoTerminal · RugCheck" };
   });
 }

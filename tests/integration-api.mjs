@@ -40,7 +40,8 @@ const fixture=createServer(async(request,response)=>{
   }
   let body='';for await(const chunk of request)body+=chunk;const input=JSON.parse(body);
   if(url.pathname.endsWith('/execute')){executed++;response.setHeader('Content-Type','application/json');response.end(JSON.stringify({status:'Success',signature}));return;}
-  if(input.method==='getGenesisHash')result=genesis;
+  if(input.method==='getAssetBatch')result=input.params.ids.map(id=>({id,content:{links:{image:'https://example.com/'+id+'.png'}}}));
+  else if(input.method==='getGenesisHash')result=genesis;
   else if(input.method==='getProgramAccounts')result=[];
   else if(input.method==='getAccountInfo')result={context:{slot:101},value:{owner:input.params[0]===extendedMint?extendedMint:token,data:{parsed:{type:'mint',info:{supply:'1000000',decimals:6,mintAuthority:null,freezeAuthority:null,isInitialized:true,...(input.params[0]===extendedMint?{extensions:[{extension:'permanentDelegate',state:{delegate:mint}}]}:{})}}}}};
   else if(input.method==='getTokenLargestAccounts')result={value:[{address:signer.publicKey.toBase58(),amount:'100'},{address:receiver.publicKey.toBase58(),amount:'100'}]};
@@ -72,7 +73,7 @@ try{
   for(const page of ['0','11','1.5','nope'])assert.equal((await get('discover?mode=new&page='+page)).status,400);
   const quotes=await get('market/quotes?mints='+token);assert.equal(quotes.status,200);assert.equal(quotes.body.markets[0].marketCap,12345);
   assert.equal((await get('market/quotes?mints=invalid')).status,400);
-  const fresh=await get('discover?mode=new');assert.equal(fresh.status,200);assert.equal(fresh.body.markets.length,2);
+  const fresh=await get('discover?mode=new');assert.equal(fresh.status,200);assert.equal(fresh.body.markets.length,2);assert.equal(fresh.body.markets.find(m=>m.mint===extendedMint).imageUrl,'https://example.com/'+extendedMint+'.png','missing feed and quote images recover from mint-matched DAS metadata');
   const bonding=await get('discover?mode=bonding');assert.equal(bonding.status,200);assert.deepEqual(bonding.body.markets.map(m=>m.mint),[token]);
   const graduated=await get('discover?mode=graduated');assert.equal(graduated.status,200);assert.deepEqual(graduated.body.markets.map(m=>m.mint),[extendedMint]);assert.equal(graduated.body.markets[0].pool,receiver.publicKey.toBase58());assert.equal(graduated.body.markets[0].marketCap,67890);assert.equal(graduated.body.markets[0].marketCapKind,'fdv');assert.equal(graduated.body.markets[0].volume24h,9999,'graduated token uses destination pool metrics');
   failMigration=true;

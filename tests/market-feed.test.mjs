@@ -36,3 +36,13 @@ test('quote refresh rotates bounded batches so large feeds do not refetch every 
  assert.equal(visited.length,400);assert.equal(new Set(visited).size,400);assert.equal(offset,0);
  assert.deepEqual(quoteBatch([],0),{mints:[],nextOffset:0});assert.equal(quoteBatch(rows,9999).mints[0],'0');
 });
+test('image metadata survives provider gaps and quote images fill missing icons for the same mint',()=>{
+ const rows=[market('a','curve',{imageUrl:'https://images.test/a.png'}),market('b','b',{imageUrl:null})];
+ const refreshed=mergeFeed(rows,[market('a','curve',{imageUrl:null})]);
+ assert.equal(refreshed[0].imageUrl,rows[0].imageUrl);
+ const result=applyQuotes(refreshed,[market('a','other',{imageUrl:'https://images.test/alternate.png'}),market('b','other',{imageUrl:'https://images.test/b.png'}),market('wrong','b',{imageUrl:'https://images.test/wrong.png'})]);
+ assert.equal(result[0].imageUrl,rows[0].imageUrl);
+ assert.equal(result[0].fallbackImageUrl,'https://images.test/alternate.png');
+ assert.equal(result[1].imageUrl,'https://images.test/b.png');
+ assert.equal(applyQuotes(result,[market('b','b',{imageUrl:null})])[1].imageUrl,'https://images.test/b.png');
+});

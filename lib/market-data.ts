@@ -136,7 +136,7 @@ export async function marketQuotes(mints: string[]): Promise<Market[]> {
   });
 }
 async function enrichCaps(markets: Market[]) {
-  const mints = [...new Set(markets.filter(market => market.marketCapKind !== "reported").map(market => market.mint))];
+  const mints = [...new Set(markets.filter(market => (market.marketCapKind !== "reported" || !market.imageUrl)).map(market => market.mint))];
   const quotes: Market[] = [];
   for (let offset = 0; offset < mints.length; offset += 30) quotes.push(...await marketQuotes(mints.slice(offset, offset + 30)).catch(() => []));
   return applyQuotes(markets, quotes);

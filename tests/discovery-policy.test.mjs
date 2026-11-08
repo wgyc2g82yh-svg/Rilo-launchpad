@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eligibleDiscovery, rankDiscovery, reconcileDiscoveryPages, discoveryPageMarkets } from '../lib/discovery-policy.ts';
+import { eligibleDiscovery, rankDiscovery, reconcileDiscoveryPages, discoveryPageMarkets, discoverySnapshot } from '../lib/discovery-policy.ts';
 const now=Date.parse('2026-11-07T08:10:00Z');
 const market=(mint,extra={})=>({mint,pool:mint,symbol:'SAME',dex:'pump-fun',launchStage:'bonding',graduationProgress:10,createdAt:new Date(now-60000).toISOString(),...extra});
 const response=(page,markets,seconds,extra={})=>({page,markets,observedAt:new Date(now+seconds*1000).toISOString(),source:'fixture',...extra});
@@ -36,4 +36,16 @@ test('stage exclusions remove old entries across pages; old snapshots cannot res
 test('graduated view sorts actual completion timestamps before pool creation timestamps',()=>{
  const rows=[market('old',{launchStage:'graduated',graduatedAt:'2026-11-07T08:00:00Z'}),market('latest',{launchStage:'graduated',graduatedAt:'2026-11-07T08:09:00Z'})];
  assert.deepEqual(rankDiscovery(rows,'graduated',now).map(m=>m.mint),['latest','old']);
+});
+
+test('older pagination cannot mark a healthy newest page delayed or replace its observation time',()=>{
+ const head=response(1,[market('latest',{launchStage:'graduated'})],40,{source:'head provider',stale:false,partial:false,refreshMs:20000});
+ const older=response(2,[market('older',{launchStage:'graduated'})],0,{source:'old provider',stale:true,partial:true,coverageNote:'old page unavailable',refreshMs:60000});
+ let pages=new Map([[1,head],[2,older]]);
+ const combined=discoverySnapshot(pages,'graduated');
+ assert.equal(combined.observedAt,head.observedAt);assert.equal(combined.source,'head provider');
+ assert.equal(combined.stale,false);assert.equal(combined.partial,false);assert.equal(combined.coverageNote,undefined);assert.equal(combined.refreshMs,20000);
+ assert.equal(combined.markets.length,2,'keep older rows without making their health the status of the newest feed');
+ pages.set(1,{...head,stale:true});assert.equal(discoverySnapshot(pages,'graduated').stale,true,'a genuinely stale head remains visible');
+ assert.equal(discoverySnapshot(new Map([[2,older]]),'new'),null,'an older page alone cannot masquerade as the newest response');
 });

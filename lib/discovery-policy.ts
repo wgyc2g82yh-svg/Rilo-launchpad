@@ -43,3 +43,11 @@ export function discoveryPageMarkets(pages: Map<number, MarketResponse>, mode: D
   }
   return rankDiscovery([...byMint.values()], mode, now);
 }
+
+// A pagination response must not replace the newest page's freshness or source.
+// Older rows remain available while their own refresh is retried independently.
+export function discoverySnapshot(pages: Map<number, MarketResponse>, mode: DiscoveryMode): MarketResponse | null {
+  const head = pages.get(1);
+  if (!head) return null;
+  return { ...head, markets: discoveryPageMarkets(pages, mode) };
+}

@@ -16,17 +16,14 @@ import { RpcError } from "@/lib/solana-rpc";
 import { createReadSnapshots } from "@/lib/read-snapshot";
 
 const snapshots = createReadSnapshots();
-async function marketSnapshot(key: string, ttl: number, load: () => Promise<MarketResponse>, quick = false): Promise<MarketResponse> {
+async function marketSnapshot(key: string, ttl: number, load: () => Promise<MarketResponse>, discovery = false): Promise<MarketResponse> {
   const freshLoad = () => cached(`market-refresh:${key}`, ttl, load);
-  const shared = process.env.GECKO_API_URL ? freshLoad : unstable_cache(freshLoad, ["market-snapshot-v4", key], { revalidate: Math.ceil(ttl / 1000) });
+  const shared = process.env.GECKO_API_URL || discovery ? freshLoad : unstable_cache(freshLoad, ["market-snapshot-v4", key], { revalidate: Math.ceil(ttl / 1000) });
   // A long-idle Next cache can return its old value once while revalidating.
   // Refresh that value before putting it in the per-instance fresh cache.
   const sharedLoad = async () => {
     const value = await shared();
     const age = Date.now() - Date.parse(value.observedAt);
-    // Next refreshes stale shared entries in the background. Recent display-only
-    // discovery rows can render immediately while that refresh runs.
-    if (quick && age > ttl && age <= 60_000) return { ...value, stale: true };
     return age > ttl ? freshLoad() : value;
   };
   const result = await snapshots.read(key, ttl, sharedLoad);
@@ -149,7 +146,7 @@ async function launchMarkets(page: number, mode: DiscoveryMode, expanded: boolea
   };
   // All launch tabs share the same classified candidates. An idle Next cache
   // must refresh before old stage membership can be treated as current again.
-  const ttl = expanded ? 60_000 : FEED_REFRESH_MS;
+  const ttl = expanded || page > 1 ? 60_000 : FEED_REFRESH_MS;
   const group = expanded ? mode === "graduated" ? "all-graduated" : "all" : mode === "bonding" ? "curves" : "new";
   const freshLoad = () => cached(`launch-markets-v7:${group}:${page}`, ttl, load);
   if (process.env.GECKO_API_URL) return freshLoad();
@@ -189,7 +186,7 @@ async function enrichCaps(markets: Market[]) {
 export async function discoverMarkets(mode: string, page = 1, expanded = false): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
   if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
-  const response = await marketSnapshot(`discover-fast-v5:${mode}:${expanded}:${page}`, expanded ? 60_000 : FEED_REFRESH_MS, async () => {
+  const response = await marketSnapshot(`discover-fast-v6:${mode}:${expanded}:${page}`, expanded || page > 1 ? 60_000 : FEED_REFRESH_MS, async () => {
     let coverageNote: string | undefined;
     if (mode === "bonding" && process.env.SOLANA_RPC_URL) {
       try { return await pumpBondingMarkets(page, async () => {
@@ -210,7 +207,7 @@ export async function discoverMarkets(mode: string, page = 1, expanded = false):
       const allowed = new Set(selected.map(market => market.mint));
       return { markets: selected, expanded, expandable: !expanded, coverageNote, partial: launches.partial || Boolean(coverageNote), observedAt: launches.observedAt, page,
         excludedMints: launches.stages.filter(([mint]) => !allowed.has(mint)).map(([mint]) => mint),
-        nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: expanded ? 60_000 : FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · verified launch stages" };
+        nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: expanded || page > 1 ? 60_000 : FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · verified launch stages" };
     }
     const markets = await indexedMarkets("trending", page);
     return { markets: await enrichCaps(markets), observedAt: new Date().toISOString(), page, nextPage: markets.length >= 20 && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana pools" };

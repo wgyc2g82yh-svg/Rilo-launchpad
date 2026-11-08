@@ -163,5 +163,18 @@ try{
   assert.equal(liveQuote.body.markets[0].price,0.02);
   assert.ok(Date.parse(liveQuote.body.observedAt)>Date.parse(beforeLive.body.observedAt));
   console.log('PASS: live cap/price updates after five-second cache expiry; quote cache timestamps remain honest.');
+  let headRefresh=await get('discover?mode=new');
+  const olderBefore=await get('discover?mode=new&page=2');
+  assert.equal(olderBefore.body.refreshMs,60000,'older discovery pages use a separate minute budget');
+  for(let cycle=0;cycle<2;cycle++){
+    await new Promise(resolve=>setTimeout(resolve,Math.max(0,Date.parse(headRefresh.body.observedAt)+20500-Date.now())));
+    const updated=await get('discover?mode=new');
+    assert.equal(updated.status,200);assert.equal(updated.body.stale,false,'successful head refresh is not labeled delayed');
+    assert.ok(Date.parse(updated.body.observedAt)>Date.parse(headRefresh.body.observedAt),'head observation must advance across refresh cycles');
+    headRefresh=updated;
+  }
+  const olderAfter=await get('discover?mode=new&page=2');
+  assert.equal(olderAfter.body.observedAt,olderBefore.body.observedAt,'head refreshes do not repeatedly reload older pages');
+  console.log('PASS: two newest-page refresh cycles advance the snapshot while older pages retain their independent cache.');
   console.log('PASS: integration API fixtures — feed, candles, CSRF origin, missing launch config, wallet-bound quote, swap message integrity, expired/tampered action tickets, signed submission, confirmation and forged profile rejection. No live transactions sent.');
 }finally{child.kill('SIGTERM');fixture.close();await once(child,'exit');}

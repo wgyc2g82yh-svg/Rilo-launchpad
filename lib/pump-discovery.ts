@@ -42,7 +42,7 @@ export async function pumpBondingMarkets(page: number): Promise<MarketResponse> 
     });
     const markets = rankDiscovery(candidates, "bonding");
     const allowed = new Set(markets.map(market => market.mint));
-    return { markets, observedAt: new Date().toISOString(), page, nextPage: lists.some(list => list.length >= 50) && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, expanded: true, expandable: false, partial: lists.length < sources.length, excludedMints: coins.filter(coin => !allowed.has(coin.mint)).map(coin => coin.mint), source: "Pump.fun · RPC-verified curve reserves · DexScreener quotes" };
+    return { markets, observedAt: new Date().toISOString(), page, nextPage: lists.some(list => list.length >= 50) && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, expanded: false, expandable: false, partial: lists.length < sources.length, excludedMints: coins.filter(coin => !allowed.has(coin.mint)).map(coin => coin.mint), source: "Pump.fun · RPC-verified curve reserves · DexScreener quotes" };
   };
   const fresh = () => cached(`pump-bonding-v1:${page}`, FEED_REFRESH_MS, load);
   if (process.env.PUMP_API_URL) return fresh();

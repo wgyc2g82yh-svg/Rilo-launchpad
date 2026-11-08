@@ -189,10 +189,18 @@ async function enrichCaps(markets: Market[]) {
 export async function discoverMarkets(mode: string, page = 1, expanded = false): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
   if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
-  const response = await marketSnapshot(`discover-fast-v4:${mode}:${expanded}:${page}`, expanded ? 60_000 : FEED_REFRESH_MS, async () => {
+  const response = await marketSnapshot(`discover-fast-v5:${mode}:${expanded}:${page}`, expanded ? 60_000 : FEED_REFRESH_MS, async () => {
     let coverageNote: string | undefined;
     if (mode === "bonding" && process.env.SOLANA_RPC_URL) {
-      try { return await pumpBondingMarkets(page); }
+      try { return await pumpBondingMarkets(page, async () => {
+        // Direct metadata may be unavailable from the hosting region. Verify
+        // indexed candidates on-chain without a second, incomplete status API.
+        const pages = [page * 2 - 1, page * 2].filter(number => number <= MAX_DISCOVERY_PAGE);
+        const sources = await Promise.allSettled(pages.map(number => marketProvider(`${root()}/networks/solana/dexes/pump-fun/pools?include=base_token,quote_token,dex&page=${number}`).then(value => parseMarkets(value))));
+        const available = sources.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
+        if (!available.length) throw new IntegrationError(502, "Launchpad candidates are temporarily unavailable.");
+        return { markets: available.flat(), partial: available.length < sources.length, hasMore: available.some(markets => markets.length >= 20) };
+      }); }
       catch (error) {
         coverageNote = error instanceof IntegrationError || error instanceof RpcError ? `Direct curve scan delayed: ${error.message} Using independently indexed stages.` : "Direct curve scan delayed. Using independently indexed stages.";
       }

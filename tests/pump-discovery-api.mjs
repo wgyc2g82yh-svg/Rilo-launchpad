@@ -15,10 +15,10 @@ const fixture=createServer(async(req,res)=>{
  if(req.method==='GET'){
   if(url.pathname==='/coins'){
    candidateCalls++;
-   if(url.searchParams.get('offset')==='100'){res.writeHead(503,{'Content-Type':'application/json'});res.end('{}');return;}
+   if(Number(url.searchParams.get('offset'))>=100){res.writeHead(503,{'Content-Type':'application/json'});res.end('{}');return;}
    if(url.searchParams.get('offset')==='50' && url.searchParams.get('sort')==='market_cap'){res.writeHead(429,{'Content-Type':'application/json'});res.end('{}');return;}
    result=mints.map((mint,index)=>({mint,bonding_curve:Keypair.generate().publicKey.toBase58(),name:'Candidate '+index,symbol:'C'+index,complete:false,usd_market_cap:25000,created_timestamp:Date.now()-60000}));
-  }else{geckoCalls++;result={data:[]};}
+  }else{geckoCalls++;assert.ok(url.pathname.includes('/dexes/pump-fun/pools'),'fallback needs candidates only, not missing percentage fields');result={data:mints.map((mint,index)=>({id:'solana_'+curves[index],attributes:{address:curves[index],name:'INDEX'+index+' / SOL',pool_created_at:new Date(Date.now()-60000).toISOString()},relationships:{base_token:{data:{id:'solana_'+mint}},dex:{data:{id:'pump-fun'}}}}))};}
  }else{
   let text='';for await(const chunk of req)text+=chunk;
   const body=JSON.parse(text);assert.equal(body.method,'getMultipleAccounts');rpcCalls++;
@@ -49,6 +49,6 @@ try{
  assert.equal(rpcCalls,2,'one global read and one batched curve read');assert.equal(candidateCalls,2);
  await get('discover?mode=bonding');assert.equal(candidateCalls,2,'repeat requests use the snapshot');
  const partial=await get('discover?mode=bonding&page=2');assert.equal(partial.partial,true);assert.equal(partial.markets.length,2,'one candidate outage preserves verified rows');
- const fallback=await get('discover?mode=bonding&page=3');assert.equal(fallback.markets.length,0);assert.equal(fallback.partial,true);assert.match(fallback.coverageNote,/candidates are temporarily unavailable/);assert.ok(geckoCalls>0,'both candidate sources failing uses independent Gecko evidence');
+ const fallback=await get('discover?mode=bonding&page=3');assert.equal(fallback.markets.length,2);assert.equal(fallback.partial,false);assert.match(fallback.source,/GeckoTerminal candidates.*RPC-verified/);assert.deepEqual(fallback.markets.map(market=>market.graduationProgress),[95,90]);assert.ok(geckoCalls>0,'both candidate sources failing uses independent Gecko evidence');
  console.log('Pump discovery API: verified progress, PDA validation, deduplication, cache, partial outage and independent fallback passed.');
 }finally{child.kill('SIGTERM');await once(child,'exit');fixture.closeAllConnections();await new Promise(resolve=>fixture.close(resolve));}

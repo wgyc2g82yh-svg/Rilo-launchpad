@@ -12,6 +12,7 @@ import { isSolanaAddress } from "@/lib/token-analysis";
 import { normalizeCandles } from "@/lib/integration-types";
 import type { Market, MarketResponse } from "@/lib/integration-types";
 import { cached, fetchProvider, IntegrationError } from "@/lib/integration-server";
+import { RpcError } from "@/lib/solana-rpc";
 import { createReadSnapshots } from "@/lib/read-snapshot";
 
 const snapshots = createReadSnapshots();
@@ -188,15 +189,18 @@ async function enrichCaps(markets: Market[]) {
 export async function discoverMarkets(mode: string, page = 1, expanded = false): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
   if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
-  const response = await marketSnapshot(`discover-fast-v3:${mode}:${expanded}:${page}`, expanded ? 60_000 : FEED_REFRESH_MS, async () => {
-    if (mode === "bonding" && process.env.SOLANA_RPC_URL && (!process.env.GECKO_API_URL || process.env.PUMP_API_URL)) {
+  const response = await marketSnapshot(`discover-fast-v4:${mode}:${expanded}:${page}`, expanded ? 60_000 : FEED_REFRESH_MS, async () => {
+    let coverageNote: string | undefined;
+    if (mode === "bonding" && process.env.SOLANA_RPC_URL) {
       try { return await pumpBondingMarkets(page); }
-      catch { /* Independently indexed stages remain available if Pump or RPC fails. */ }
+      catch (error) {
+        coverageNote = error instanceof IntegrationError || error instanceof RpcError ? `Direct curve scan delayed: ${error.message} Using independently indexed stages.` : "Direct curve scan delayed. Using independently indexed stages.";
+      }
     }
     if (mode !== "trending") {
       const launches = await launchMarkets(page, mode as DiscoveryMode, expanded), selected = launches[mode as DiscoveryMode];
       const allowed = new Set(selected.map(market => market.mint));
-      return { markets: selected, expanded, expandable: !expanded, partial: launches.partial, observedAt: launches.observedAt, page,
+      return { markets: selected, expanded, expandable: !expanded, coverageNote, partial: launches.partial || Boolean(coverageNote), observedAt: launches.observedAt, page,
         excludedMints: launches.stages.filter(([mint]) => !allowed.has(mint)).map(([mint]) => mint),
         nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: expanded ? 60_000 : FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · verified launch stages" };
     }

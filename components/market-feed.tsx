@@ -168,6 +168,7 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
     {quoteError && data && <p className="form-note" role="status">{quoteError}</p>}
     {error && data && <p className="form-note" role="status">{error}</p>}
     {data?.stale && <p className="form-note" role="status">Launch list snapshot delayed. Last received {new Date(data.observedAt).toLocaleTimeString()}; retrying automatically.</p>}
+    {data?.coverageNote && <p className="form-note" role="status">{data.coverageNote}</p>}
     {data?.partial && <p className="subtle" role="status">Some launch data is temporarily unavailable. Showing verified results; coverage retries automatically.</p>}
     {data && <div className="feed-pagination" ref={more}><span>{visibleMarkets.length} tokens loaded</span>{nextPage !== null && <button type="button" className="quiet-button" disabled={loadingMore} onClick={() => void loadMore.current()}>{loadingMore ? "Loading more…" : "Load more tokens"}</button>}</div>}
     {data && <p className="data-caption">{data.source} · Observed {new Date(data.observedAt).toLocaleTimeString()}{visibleMarkets.length > 0 && <> · Quotes refresh every 5 seconds{quoteCheckedAt ? ` · Quotes checked ${new Date(quoteCheckedAt).toLocaleTimeString()}` : ""}</>} · Launch list refreshes every {(mode === "new" ? FEED_REFRESH_MS : data.refreshMs ?? FEED_REFRESH_MS) / 1000} seconds · ~ Estimated cap (FDV)</p>}

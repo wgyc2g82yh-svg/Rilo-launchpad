@@ -13,6 +13,7 @@ import { normalizeCandles } from "@/lib/integration-types";
 import type { Market, MarketResponse } from "@/lib/integration-types";
 import { cached, fetchProvider, IntegrationError } from "@/lib/integration-server";
 import { RpcError } from "@/lib/solana-rpc";
+import { readProviderSnapshot } from "@/lib/provider-snapshot";
 import { createReadSnapshots } from "@/lib/read-snapshot";
 
 const snapshots = createReadSnapshots();
@@ -53,7 +54,7 @@ async function marketProvider(url: string, observation?: ProviderObservation): P
     }
   });
   const shared = unstable_cache(load, ["discovery-provider-v5", url], { revalidate: FEED_REFRESH_MS / 1000 });
-  const result = await shared();
+  const result = await readProviderSnapshot(shared, load);
   // Chart and token-detail callers keep their existing synchronous freshness.
   if (!observation && Date.now() - result.receivedAt >= FEED_REFRESH_MS) return (await load()).value;
   // Next starts one shared revalidation. Starting another synchronous load here
@@ -195,7 +196,7 @@ async function enrichCaps(markets: Market[]) {
 export async function discoverMarkets(mode: string, page = 1, expanded = false): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
   if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
-  const response = await marketSnapshot(`discover-fast-v8:${mode}:${expanded}:${page}`, expanded || page > 1 ? 60_000 : FEED_REFRESH_MS, async () => {
+  const response = await marketSnapshot(`discover-fast-v9:${mode}:${expanded}:${page}`, expanded || page > 1 ? 60_000 : FEED_REFRESH_MS, async () => {
     let coverageNote: string | undefined, direct: MarketResponse | undefined;
     if (mode === "bonding" && process.env.SOLANA_RPC_URL) {
       try { direct = await pumpBondingMarkets(page, async () => {

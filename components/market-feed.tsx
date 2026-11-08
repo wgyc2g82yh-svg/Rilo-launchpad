@@ -171,7 +171,7 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
     {data?.partial && <p className="subtle" role="status">Some launch data is temporarily unavailable. Showing verified results; coverage retries automatically.</p>}
     {data && <div className="feed-pagination" ref={more}><span>{visibleMarkets.length} tokens loaded</span>{nextPage !== null && <button type="button" className="quiet-button" disabled={loadingMore} onClick={() => void loadMore.current()}>{loadingMore ? "Loading more…" : "Load more tokens"}</button>}</div>}
     {data && <p className="data-caption">{data.source} · Observed {new Date(data.observedAt).toLocaleTimeString()}{visibleMarkets.length > 0 && <> · Quotes refresh every 5 seconds{quoteCheckedAt ? ` · Quotes checked ${new Date(quoteCheckedAt).toLocaleTimeString()}` : ""}</>} · Launch list refreshes every {(mode === "new" ? FEED_REFRESH_MS : data.refreshMs ?? FEED_REFRESH_MS) / 1000} seconds · ~ Estimated cap (FDV)</p>}
-    {data && !visibleMarkets.length && !searching && <p className="empty-note">{mode === "bonding" ? "No verified curves at 80–<100% in the pools checked so far. New candidates are checked automatically." : `No matching ${feeds.find(feed => feed.mode === mode)?.label.toLowerCase()} in the pools checked so far.`}</p>}
+    {data && !visibleMarkets.length && !searching && !error && !data.partial && !data.stale && <p className="empty-note">{mode === "bonding" ? "No verified curves at 80–<100% in the pools checked so far. New candidates are checked automatically." : `No matching ${feeds.find(feed => feed.mode === mode)?.label.toLowerCase()} in the pools checked so far.`}</p>}
   </section>;
 }
 

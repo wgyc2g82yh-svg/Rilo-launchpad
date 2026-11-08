@@ -1,4 +1,5 @@
 import "server-only";
+import { pumpBondingMarkets } from "@/lib/pump-discovery";
 import { enrichArtwork } from "@/lib/token-artwork";
 import { unstable_cache } from "next/cache";
 import { capitalization, applyQuotes, FEED_REFRESH_MS, LIVE_QUOTE_REFRESH_MS, MAX_DISCOVERY_PAGE } from "@/lib/market-feed-data";
@@ -187,7 +188,11 @@ async function enrichCaps(markets: Market[]) {
 export async function discoverMarkets(mode: string, page = 1, expanded = false): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
   if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
-  const response = await marketSnapshot(`discover-fast-v2:${mode}:${expanded}:${page}`, expanded ? 60_000 : FEED_REFRESH_MS, async () => {
+  const response = await marketSnapshot(`discover-fast-v3:${mode}:${expanded}:${page}`, expanded ? 60_000 : FEED_REFRESH_MS, async () => {
+    if (mode === "bonding" && process.env.SOLANA_RPC_URL && (!process.env.GECKO_API_URL || process.env.PUMP_API_URL)) {
+      try { return await pumpBondingMarkets(page); }
+      catch { /* Independently indexed stages remain available if Pump or RPC fails. */ }
+    }
     if (mode !== "trending") {
       const launches = await launchMarkets(page, mode as DiscoveryMode, expanded), selected = launches[mode as DiscoveryMode];
       const allowed = new Set(selected.map(market => market.mint));

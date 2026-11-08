@@ -15,7 +15,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
-    "test:api": "node tests/api-smoke.mjs && node tests/integration-api.mjs"
+    "test:api": "node tests/api-smoke.mjs && node tests/integration-api.mjs && node tests/pump-discovery-api.mjs"
   },
   "engines": {
     "node": ">=22.18.0"

@@ -66,7 +66,7 @@ const fixture=createServer(async(request,response)=>{
 fixture.listen(0,'127.0.0.1');await once(fixture,'listening');
 const reservation=createServer();reservation.listen(0,'127.0.0.1');await once(reservation,'listening');const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
 const base=`http://127.0.0.1:${port}`,upstream=`http://127.0.0.1:${fixture.address().port}`;
-const child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(port)],{env:{...process.env,SOLANA_RPC_URL:upstream,GECKO_API_URL:upstream,DEXSCREENER_API_URL:upstream,RUGCHECK_API_URL:upstream,JUPITER_API_URL:upstream,JUPITER_API_KEY:'fixture-only',APP_SIGNING_SECRET:secret,APP_ORIGIN:base,ENABLE_MAINNET_TRANSACTIONS:'true'},stdio:['ignore','pipe','pipe']});
+const child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p',String(port)],{env:{...process.env,SOLANA_RPC_URL:upstream,GECKO_API_URL:upstream,PUMP_API_URL:upstream,DEXSCREENER_API_URL:upstream,RUGCHECK_API_URL:upstream,JUPITER_API_URL:upstream,JUPITER_API_KEY:'fixture-only',APP_SIGNING_SECRET:secret,APP_ORIGIN:base,ENABLE_MAINNET_TRANSACTIONS:'true'},stdio:['ignore','pipe','pipe']});
 let logs='';child.stdout.on('data',chunk=>logs+=chunk);child.stderr.on('data',chunk=>logs+=chunk);
 const get=async(path)=>{const r=await fetch(base+'/api/rilo/'+path);return {status:r.status,retryAfter:r.headers.get('Retry-After'),body:await r.json()};};
 const post=async(path,body,origin=base)=>{const r=await fetch(base+'/api/rilo/'+path,{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};

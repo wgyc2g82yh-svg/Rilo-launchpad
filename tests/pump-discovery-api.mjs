@@ -49,6 +49,6 @@ try{
  assert.equal(rpcCalls,2,'one global read and one batched curve read');assert.equal(candidateCalls,2);
  await get('discover?mode=bonding');assert.equal(candidateCalls,2,'repeat requests use the snapshot');
  const partial=await get('discover?mode=bonding&page=2');assert.equal(partial.partial,true);assert.equal(partial.markets.length,2,'one candidate outage preserves verified rows');
- const fallback=await get('discover?mode=bonding&page=3');assert.equal(fallback.markets.length,0);assert.ok(geckoCalls>0,'both candidate sources failing uses independent Gecko evidence');
+ const fallback=await get('discover?mode=bonding&page=3');assert.equal(fallback.markets.length,0);assert.equal(fallback.partial,true);assert.match(fallback.coverageNote,/candidates are temporarily unavailable/);assert.ok(geckoCalls>0,'both candidate sources failing uses independent Gecko evidence');
  console.log('Pump discovery API: verified progress, PDA validation, deduplication, cache, partial outage and independent fallback passed.');
 }finally{child.kill('SIGTERM');await once(child,'exit');fixture.closeAllConnections();await new Promise(resolve=>fixture.close(resolve));}

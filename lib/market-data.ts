@@ -54,6 +54,8 @@ async function marketProvider(url: string, observation?: ProviderObservation): P
   });
   const shared = unstable_cache(load, ["discovery-provider-v5", url], { revalidate: FEED_REFRESH_MS / 1000 });
   const result = await shared();
+  // Chart and token-detail callers keep their existing synchronous freshness.
+  if (!observation && Date.now() - result.receivedAt >= FEED_REFRESH_MS) return (await load()).value;
   // Next starts one shared revalidation. Starting another synchronous load here
   // doubles upstream traffic and can keep a healthy feed in a rate-limit loop.
   if (Date.now() - result.receivedAt > 300_000) throw new IntegrationError(502, "The launch index has not refreshed. Retrying automatically.");
@@ -200,7 +202,7 @@ export async function discoverMarkets(mode: string, page = 1, expanded = false):
         // Direct metadata may be unavailable from the hosting region. Verify
         // indexed candidates on-chain without a second, incomplete status API.
         const pages = [page * 2 - 1, page * 2].filter(number => number <= MAX_DISCOVERY_PAGE);
-        const sources = await Promise.allSettled(pages.map(number => marketProvider(`${root()}/networks/solana/dexes/pump-fun/pools?include=base_token,quote_token,dex&page=${number}`).then(value => parseMarkets(value))));
+        const sources = await Promise.allSettled(pages.map(number => marketProvider(`${root()}/networks/solana/dexes/pump-fun/pools?include=base_token,quote_token,dex&page=${number}`, { receivedAt: Number.POSITIVE_INFINITY }).then(value => parseMarkets(value))));
         const available = sources.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
         if (!available.length) throw new IntegrationError(502, "Launchpad candidates are temporarily unavailable.");
         return { markets: available.flat(), partial: available.length < sources.length, hasMore: available.some(markets => markets.length >= 20) };

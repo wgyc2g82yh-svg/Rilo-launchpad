@@ -17,7 +17,7 @@ export function createDiscoveryStore(load: (path: string) => Promise<MarketRespo
       const age = now() - Date.parse(value?.observedAt ?? "");
       if (!value || !Number.isFinite(age) || age < 0 || age > 60_000 || !Array.isArray(value.markets) || value.markets.length > 400) return null;
       if (!value.markets.every((market: { mint?: unknown; pool?: unknown; symbol?: unknown }) => typeof market.mint === "string" && isSolanaAddress(market.mint) && typeof market.pool === "string" && isSolanaAddress(market.pool) && typeof market.symbol === "string")) return null;
-      return { ...value, stale: Boolean(value.stale) || age > 20_000 };
+      return { ...value, stale: Boolean(value.stale) };
     } catch { return null; }
   }
   function save(mode: DiscoveryMode, value: MarketResponse) {

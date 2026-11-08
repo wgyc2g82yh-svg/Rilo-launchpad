@@ -1,6 +1,5 @@
 import "server-only";
 import { PublicKey } from "@solana/web3.js";
-import { unstable_cache } from "next/cache";
 import { cached, fetchProvider, IntegrationError } from "@/lib/integration-server";
 import { rpc } from "@/lib/solana-rpc";
 import { PUMP_PROGRAM, pumpInitialReserves, pumpCurveProgress } from "@/lib/pump-curve-state";
@@ -44,11 +43,9 @@ export async function pumpBondingMarkets(page: number, indexedCandidates: () => 
     });
     const markets = rankDiscovery(candidates, "bonding");
     const allowed = new Set(markets.map(market => market.mint));
-    return { markets, observedAt: new Date().toISOString(), page, nextPage: (indexed ? indexed.hasMore : lists.some(list => list.length >= 50)) && page < (indexed ? MAX_DISCOVERY_PAGE / 2 : MAX_DISCOVERY_PAGE) ? page + 1 : null, refreshMs: FEED_REFRESH_MS, expanded: false, expandable: false, partial: indexed ? indexed.partial : lists.length < sources.length, excludedMints: coins.filter(coin => !allowed.has(coin.mint)).map(coin => coin.mint), source: `${indexed ? "GeckoTerminal candidates" : "Pump.fun"} · RPC-verified curve reserves · DexScreener quotes` };
+    return { markets, observedAt: new Date().toISOString(), page, nextPage: (indexed ? indexed.hasMore : lists.some(list => list.length >= 50)) && page < (indexed ? MAX_DISCOVERY_PAGE / 2 : MAX_DISCOVERY_PAGE) ? page + 1 : null, refreshMs: FEED_REFRESH_MS, expanded: false, expandable: markets.length === 0 && page === 1, partial: indexed ? indexed.partial : lists.length < sources.length, excludedMints: coins.filter(coin => !allowed.has(coin.mint)).map(coin => coin.mint), source: `${indexed ? "GeckoTerminal candidates" : "Pump.fun"} · RPC-verified curve reserves · DexScreener quotes` };
   };
-  const fresh = () => cached(`pump-bonding-v2:${page}`, FEED_REFRESH_MS, load);
-  if (process.env.PUMP_API_URL) return fresh();
-  const shared = unstable_cache(fresh, ["pump-bonding-v2", String(page)], { revalidate: FEED_REFRESH_MS / 1000 });
-  const result = await shared();
-  return Date.now() - Date.parse(result.observedAt) >= FEED_REFRESH_MS ? fresh() : result;
+  // Classification is verified by RPC on refresh. Shared stale-while-revalidate
+  // belongs to candidate metadata, never the final curve-state snapshot.
+  return cached(`pump-bonding-v3:${page}`, FEED_REFRESH_MS, load);
 }

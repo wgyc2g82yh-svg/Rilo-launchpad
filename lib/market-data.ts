@@ -195,10 +195,10 @@ async function enrichCaps(markets: Market[]) {
 export async function discoverMarkets(mode: string, page = 1, expanded = false): Promise<MarketResponse> {
   if (!["trending", "new", "bonding", "graduated"].includes(mode)) throw new IntegrationError(400, "Choose new, bonding, or graduated pools.");
   if (!Number.isInteger(page) || page < 1 || page > MAX_DISCOVERY_PAGE) throw new IntegrationError(400, "Choose a page between 1 and 10.");
-  const response = await marketSnapshot(`discover-fast-v7:${mode}:${expanded}:${page}`, expanded || page > 1 ? 60_000 : FEED_REFRESH_MS, async () => {
-    let coverageNote: string | undefined;
+  const response = await marketSnapshot(`discover-fast-v8:${mode}:${expanded}:${page}`, expanded || page > 1 ? 60_000 : FEED_REFRESH_MS, async () => {
+    let coverageNote: string | undefined, direct: MarketResponse | undefined;
     if (mode === "bonding" && process.env.SOLANA_RPC_URL) {
-      try { return await pumpBondingMarkets(page, async () => {
+      try { direct = await pumpBondingMarkets(page, async () => {
         // Direct metadata may be unavailable from the hosting region. Verify
         // indexed candidates on-chain without a second, incomplete status API.
         const pages = [page * 2 - 1, page * 2].filter(number => number <= MAX_DISCOVERY_PAGE);
@@ -206,17 +206,26 @@ export async function discoverMarkets(mode: string, page = 1, expanded = false):
         const available = sources.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
         if (!available.length) throw new IntegrationError(502, "Launchpad candidates are temporarily unavailable.");
         return { markets: available.flat(), partial: available.length < sources.length, hasMore: available.some(markets => markets.length >= 20) };
-      }); }
+      });
+        if (!expanded) return direct;
+      }
       catch (error) {
         coverageNote = error instanceof IntegrationError || error instanceof RpcError ? `Direct curve scan delayed: ${error.message} Using independently indexed stages.` : "Direct curve scan delayed. Using independently indexed stages.";
       }
     }
     if (mode !== "trending") {
-      const launches = await launchMarkets(page, mode as DiscoveryMode, expanded), selected = launches[mode as DiscoveryMode];
+      let launches;
+      try { launches = await launchMarkets(page, mode as DiscoveryMode, expanded); }
+      catch (error) {
+        if (!direct) throw error;
+        return { ...direct, expanded: true, expandable: false, partial: true, coverageNote: "Broader launchpad coverage is delayed. Retrying automatically." };
+      }
+      const rpcChecked = new Set([...(direct?.markets.map(market => market.mint) ?? []), ...(direct?.excludedMints ?? [])]);
+      const selected = rankDiscovery([...(direct?.markets ?? []), ...launches[mode as DiscoveryMode].filter(market => !rpcChecked.has(market.mint))], mode as DiscoveryMode);
       const allowed = new Set(selected.map(market => market.mint));
-      return { markets: selected, expanded, expandable: !expanded, coverageNote, partial: launches.partial || Boolean(coverageNote), observedAt: launches.observedAt, page,
-        excludedMints: launches.stages.filter(([mint]) => !allowed.has(mint)).map(([mint]) => mint),
-        nextPage: launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: expanded || page > 1 ? 60_000 : FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · verified launch stages" };
+      return { markets: selected, expanded, expandable: !expanded, coverageNote, partial: launches.partial || Boolean(direct?.partial) || Boolean(coverageNote), observedAt: direct && Date.parse(direct.observedAt) < Date.parse(launches.observedAt) ? direct.observedAt : launches.observedAt, page,
+        excludedMints: [...new Set([...launches.stages.map(([mint]) => mint), ...(direct?.excludedMints ?? [])])].filter(mint => !allowed.has(mint)),
+        nextPage: (direct?.nextPage ?? (launches.hasMore && page < MAX_DISCOVERY_PAGE ? page + 1 : null)), refreshMs: expanded || page > 1 ? 60_000 : FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · verified launch stages" };
     }
     const markets = await indexedMarkets("trending", page);
     return { markets: await enrichCaps(markets), observedAt: new Date().toISOString(), page, nextPage: markets.length >= 20 && page < MAX_DISCOVERY_PAGE ? page + 1 : null, refreshMs: FEED_REFRESH_MS, source: "GeckoTerminal · DexScreener · indexed Solana pools" };

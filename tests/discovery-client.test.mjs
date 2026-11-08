@@ -9,7 +9,7 @@ test('returning to a tab restores recent real rows from memory or session storag
  first.save('new',value(now));assert.equal(first.read('new').markets.length,1);
  const restored=createDiscoveryStore(async()=>value(now),()=>now,storage);
  assert.equal(restored.read('new').markets[0].mint,mint);
- now+=21000;assert.equal(restored.read('new').stale,true);
+ now+=21000;assert.equal(restored.read('new').stale,false,'restoring a recent tab must not invent a failed refresh');
  now+=40000;assert.equal(restored.read('new'),null);
 });
 test('a homepage preload and a simultaneous tab request share one in-flight read',async()=>{

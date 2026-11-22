@@ -199,7 +199,7 @@ export function OriginalBackground() {
 }
 const RILO_CA = "GQUtkCLVfBr4xYYpJTmu2b3WkD68CFa5YgBvKPPVpump";
 
-function RiloContractAddress() {
+export function RiloContractAddress() {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   useEffect(() => {
     if (copyState === "idle") return;
@@ -227,7 +227,7 @@ function RiloContractAddress() {
     </div>
     <span className="rilo-contract-status" role="status" aria-live="polite">{copyState === "copied" ? "Contract address copied." : copyState === "error" ? "Select and hold the address to copy it manually." : ""}</span>
     <style jsx>{`
-      .rilo-contract { width:100%; max-width:620px; box-sizing:border-box; margin-top:28px; padding:18px 20px; border:1px solid #ffffff26; border-radius:12px; background:linear-gradient(125deg,#ffffff09,#ffffff02); box-shadow:inset 0 1px 0 #ffffff08; text-align:left; }
+      .rilo-contract { width:100%; max-width:620px; box-sizing:border-box; margin:20px 0 0; padding:18px 20px; border:1px solid #ffffff26; border-radius:12px; background:linear-gradient(125deg,#ffffff09,#ffffff02); box-shadow:inset 0 1px 0 #ffffff08; text-align:left; }
       .rilo-contract-heading { display:flex; align-items:center; gap:12px; margin-bottom:12px; font-size:14px; line-height:1.4; }
       .rilo-contract-heading span:first-child { color:#f0f0f3; font-weight:600; }
       .rilo-contract-heading span:last-child { color:#aaaab4; font-size:12px; letter-spacing:.1em; }
@@ -244,5 +244,5 @@ function RiloContractAddress() {
 }
 
 export function OriginalHero({onExplore,onTechnology,search}: {onExplore():void;onTechnology():void;search?:ReactNode}) {
-  return <section className="rt-hero rt-home-hero"><div className="rt-hero-copy"><div className="rt-eyebrow"><span className="rt-dot"/> THE LAUNCH INTELLIGENCE LAYER</div><h1 className="rt-powered">POWERED BY <span>RILO</span></h1><p>Explore Solana tokens. Inspect token controls, wallet connections, and available developer history before your next move.</p>{search}<div className="rt-hero-actions"><button className="rt-primary" onClick={onExplore}>Explore tokens</button><button className="rt-secondary" onClick={onTechnology}>Explore the signals</button></div><RiloContractAddress/><div className="rt-hero-meta"><span>◎ SOLANA</span><i/><span>ON-CHAIN MARKETS</span></div></div></section>;
+  return <section className="rt-hero rt-home-hero"><div className="rt-hero-copy"><div className="rt-eyebrow"><span className="rt-dot"/> THE LAUNCH INTELLIGENCE LAYER</div><h1 className="rt-powered">POWERED BY <span>RILO</span></h1><p>Explore Solana tokens. Inspect token controls, wallet connections, and available developer history before your next move.</p>{search}<div className="rt-hero-actions"><button className="rt-primary" onClick={onExplore}>Explore tokens</button><button className="rt-secondary" onClick={onTechnology}>Explore the signals</button></div><div className="rt-hero-meta"><span>◎ SOLANA</span><i/><span>ON-CHAIN MARKETS</span></div></div></section>;
 }

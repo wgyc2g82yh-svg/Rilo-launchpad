@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { DRAFT_KEY, EMPTY_DRAFT, readDraft, validateDraft } from "@/lib/launch-draft";
 import type { LaunchDraft } from "@/lib/launch-draft";
 import { LaunchActions } from "@/components/launch-actions";
+import { useWallet } from "@/components/wallet-provider";
 import { FeeEngine } from "@/components/fee-engine";
 
 export function LaunchForm() {
+  const { status } = useWallet();
   const [draft, setDraft] = useState<LaunchDraft>({ ...EMPTY_DRAFT });
   const [ready, setReady] = useState(false);
   const [review, setReview] = useState(false);
@@ -59,6 +61,7 @@ export function LaunchForm() {
   const displayImage = /^data:image\/(png|jpeg|webp);base64,/.test(draft.image) ? draft.image : "";
 
   return <section className="launch-layout">
+    {status && !status.launches && <div className="panel launch-availability" role="status"><h3>Token launches are not available yet.</h3><p>You can create and save a profile now. Deployment will be available after RILO’s launch configuration is activated.</p></div>}
     <div className="panel launch-panel">
       <div className="panel-heading"><div><p className="eyebrow">CREATE A TOKEN</p><h2>{review ? "Review your launch" : "Start with your vision."}</h2></div><span className="step-label">0{review ? 2 : 1} / 02</span></div>
       <div className="steps"><span className={!review ? "current" : ""}>01 Profile</span><span className={review ? "current" : ""}>02 Review</span></div>

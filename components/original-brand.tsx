@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 type State = "pending" | "clear" | "flagged" | "unavailable";
 type Check = { state: State; summary: string; evidence: string[] };
@@ -197,6 +197,6 @@ function SignalEngine({ tokens, mode }: { tokens: Token[]; mode: "preview" | "li
 export function OriginalBackground() {
   return <><Background/><div className="rt-metal-field" aria-hidden="true"><div className="rt-metal-wave rt-metal-wave-one"/><div className="rt-metal-wave rt-metal-wave-two"/><div className="rt-metal-wave rt-metal-wave-three"/></div></>;
 }
-export function OriginalHero({onExplore,onTechnology}: {onExplore():void;onTechnology():void}) {
-  return <section className="rt-hero rt-home-hero"><div className="rt-hero-copy"><div className="rt-eyebrow"><span className="rt-dot"/> THE LAUNCH INTELLIGENCE LAYER</div><h1 className="rt-powered">POWERED BY <span>RILO</span></h1><p>See bundled supply, connected wallets, and developer history. Every signal, right where you trade.</p><div className="rt-hero-actions"><button className="rt-primary" onClick={onExplore}>Explore tokens</button><button className="rt-secondary" onClick={onTechnology}>Explore the technology</button></div><div className="rt-hero-meta"><span>◎ SOLANA</span><i/><span>ON-CHAIN MARKETS</span></div></div></section>;
+export function OriginalHero({onExplore,onTechnology,search}: {onExplore():void;onTechnology():void;search?:ReactNode}) {
+  return <section className="rt-hero rt-home-hero"><div className="rt-hero-copy"><div className="rt-eyebrow"><span className="rt-dot"/> THE LAUNCH INTELLIGENCE LAYER</div><h1 className="rt-powered">POWERED BY <span>RILO</span></h1><p>Explore Solana tokens. Inspect token controls, wallet connections, and available developer history before your next move.</p>{search}<div className="rt-hero-actions"><button className="rt-primary" onClick={onExplore}>Explore tokens</button><button className="rt-secondary" onClick={onTechnology}>Explore the signals</button></div><div className="rt-hero-meta"><span>◎ SOLANA</span><i/><span>ON-CHAIN MARKETS</span></div></div></section>;
 }

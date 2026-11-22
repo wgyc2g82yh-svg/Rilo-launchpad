@@ -16,14 +16,14 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
   const [moreError, setMoreError] = useState("");
   const [searching, setSearching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false), [nextPage, setNextPage] = useState<number | null>(null);
-  const [quoteError, setQuoteError] = useState(""), [quoteCheckedAt, setQuoteCheckedAt] = useState<string | null>(null);
+  const [quoteError, setQuoteError] = useState("");
   const paused = useRef(false), pendingData = useRef<MarketResponse | null>(null);
   const more = useRef<HTMLDivElement>(null), loadMore = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     const abort = new AbortController(); let timer: number, retryMs = FEED_REFRESH_MS, busy = false, markets: Market[] = [], next: number | null = 1, highest = 0, refreshPage = 2, retryPage: number | null = null;
     let snapshot: MarketResponse | null = null, releaseTimer: number, olderRefreshAt = Date.now() + 60_000;
     let quoteTimer: number | undefined, quoteBusy = false, quoteNotBefore = 0;
-    setQuoteError(""); setQuoteCheckedAt(null);
+    setQuoteError("");
     let pages = new Map<number, MarketResponse>();
     const restored = readDiscoveryCache(mode);
     if (restored) {
@@ -125,19 +125,13 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
       if (Date.now() < quoteNotBefore) { quoteTimer = window.setTimeout(refreshQuotes, quoteNotBefore - Date.now()); return; }
       quoteBusy = true;
       try {
-        let oldest: number | null = null;
         for (const batch of liveQuoteBatches(markets)) {
           if (abort.signal.aborted || document.hidden) break;
           const result = await rilo<MarketResponse>(`market/quotes?mints=${batch.join(",")}`, undefined, abort.signal);
           if (abort.signal.aborted) return;
           markets = applyQuotes(markets, result.markets);
           if (snapshot) { snapshot = { ...snapshot, markets }; publish(snapshot); }
-          if (result.markets.length) {
-            const time = Date.parse(result.observedAt);
-            if (Number.isFinite(time)) oldest = Math.min(oldest ?? time, time);
-          }
         }
-        if (oldest !== null) setQuoteCheckedAt(new Date(oldest).toISOString());
         setQuoteError("");
       } catch (error) {
         if (!abort.signal.aborted) {
@@ -185,7 +179,6 @@ export function MarketFeed({ onSelect, search }: { onSelect(market: Market): voi
     {data && (error || data.stale || data.coverageNote || data.partial) && <p className="form-note" role="status">{error || (data.stale ? `Launch list update delayed. Last received ${new Date(data.observedAt).toLocaleTimeString()}; retrying automatically.` : data.coverageNote || "Some launch data is temporarily unavailable. Showing verified results; retrying automatically.")}</p>}
     {moreError && !error && !data?.stale && <p className="subtle" role="status">{moreError}</p>}
     {data && <div className="feed-pagination" ref={more}><span>{visibleMarkets.length} tokens loaded</span>{nextPage !== null && <button type="button" className="quiet-button" disabled={loadingMore} onClick={() => void loadMore.current()}>{loadingMore ? "Loading more…" : "Load more tokens"}</button>}</div>}
-    {data && <p className="data-caption">{data.source} · Observed {new Date(data.observedAt).toLocaleTimeString()}{visibleMarkets.length > 0 && <> · Quotes refresh every 5 seconds{quoteCheckedAt ? ` · Quotes checked ${new Date(quoteCheckedAt).toLocaleTimeString()}` : ""}</>} · Launch list refreshes every {(mode === "new" ? FEED_REFRESH_MS : data.refreshMs ?? FEED_REFRESH_MS) / 1000} seconds · ~ Estimated cap (FDV)</p>}
     {data && !visibleMarkets.length && !searching && !error && !data.partial && !data.stale && <p className="empty-note">{mode === "bonding" ? "No verified curves at 80–<100% in the pools checked so far. New candidates are checked automatically." : `No matching ${feeds.find(feed => feed.mode === mode)?.label.toLowerCase()} in the pools checked so far.`}</p>}
   </section>;
 }

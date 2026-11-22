@@ -2,7 +2,7 @@
 import type { Market } from "@/lib/integration-types";
 
 import { useEffect, useRef, useState } from "react";
-import { OriginalBackground, OriginalBrand, OriginalHero, OriginalIcon, RiloContractAddress } from "@/components/original-brand";
+import { OriginalBackground, OriginalBrand, OriginalHero, OriginalIcon } from "@/components/original-brand";
 import { Star, XIcon } from "@/components/icons";
 import { WalletButton } from "@/components/wallet-button";
 import { LaunchForm } from "@/components/launch-form";
@@ -116,7 +116,6 @@ function RiloDashboard() {
       <div className="rt-header-actions"><a className="rt-social" href="https://x.com/RiloProtocol" target="_blank" rel="noopener noreferrer" aria-label="RiloProtocol on X"><XIcon/></a><span className="rt-chain"><span>◎</span> SOLANA</span><WalletButton/></div>
     </div></header>
     <div className="rt-container" id="rilo-content" tabIndex={-1}>
-      <RiloContractAddress />
 
       {tab === "home" ? <OriginalHero onExplore={()=>navigate("Discover")} onTechnology={()=>navigate("Signals")} search={<div className="home-token-search">{tokenSearch}{error && <p id="token-search-error" className="form-error" role="alert">{error}</p>}<p className="home-search-note">Paste a CA to inspect a project. No wallet required.</p></div>}/> : tab === "discover" || tab === "signals" ? <>
         {tab === "signals" && <section className="app-intro"><div><p className="eyebrow">THE SIGNAL ENGINE</p><h1>Look beneath<br/><span>the launch.</span></h1><p>Inspect token controls, supply concentration, and public wallet evidence. Missing coverage stays visible.</p></div></section>}

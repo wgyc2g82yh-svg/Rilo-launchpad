@@ -197,6 +197,52 @@ function SignalEngine({ tokens, mode }: { tokens: Token[]; mode: "preview" | "li
 export function OriginalBackground() {
   return <><Background/><div className="rt-metal-field" aria-hidden="true"><div className="rt-metal-wave rt-metal-wave-one"/><div className="rt-metal-wave rt-metal-wave-two"/><div className="rt-metal-wave rt-metal-wave-three"/></div></>;
 }
+const RILO_CA = "21dWe8RCMsxh2YBmFVsNsiNTHJtHokSBwbAYCd5Hpump";
+
+export function RiloContractAddress() {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  useEffect(() => {
+    if (copyState === "idle") return;
+    const timer = window.setTimeout(() => setCopyState("idle"), 3000);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
+
+  async function copyAddress() {
+    try {
+      await navigator.clipboard.writeText(RILO_CA);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  }
+
+  return <div className="rilo-contract" role="group" aria-label="$RILO contract address">
+    <div className="rilo-contract-heading"><span>$RILO</span><span>CONTRACT ADDRESS</span></div>
+    <div className="rilo-contract-row">
+      <code tabIndex={0} aria-label={`Contract address: ${RILO_CA}`}>{RILO_CA}</code>
+      <button type="button" onClick={() => void copyAddress()} aria-label="Copy RILO contract address">
+        <OriginalIcon name={copyState === "copied" ? "check" : "copy"} size={17}/>
+        <span>{copyState === "copied" ? "Copied" : "Copy CA"}</span>
+      </button>
+    </div>
+    <span className="rilo-contract-status" role="status" aria-live="polite">{copyState === "copied" ? "Contract address copied." : copyState === "error" ? "Select and hold the address to copy it manually." : ""}</span>
+    <style jsx>{`
+      .rilo-contract { width:100%; max-width:620px; box-sizing:border-box; margin:20px 0 0; padding:18px 20px; border:1px solid #ffffff26; border-radius:12px; background:linear-gradient(125deg,#ffffff09,#ffffff02); box-shadow:inset 0 1px 0 #ffffff08; text-align:left; }
+      .rilo-contract-heading { display:flex; align-items:center; gap:12px; margin-bottom:12px; font-size:14px; line-height:1.4; }
+      .rilo-contract-heading span:first-child { color:#f0f0f3; font-weight:600; }
+      .rilo-contract-heading span:last-child { color:#aaaab4; font-size:12px; letter-spacing:.1em; }
+      .rilo-contract-row { display:flex; align-items:center; gap:16px; }
+      .rilo-contract-row code { display:block; flex:1; min-width:0; color:#dedee5; font:14px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap:anywhere; user-select:all; -webkit-user-select:all; }
+      .rilo-contract-row button { display:inline-flex; align-items:center; justify-content:center; gap:8px; flex-shrink:0; min-height:44px; padding:10px 14px; border:1px solid #ffffff35; border-radius:8px; background:linear-gradient(145deg,#ececf0,#b2b2bc); color:#17171c; font-family:inherit; font-size:14px; font-weight:600; line-height:1.4; cursor:pointer; }
+      .rilo-contract-row button:hover { filter:brightness(1.1); }
+      .rilo-contract-row button:focus-visible, .rilo-contract-row code:focus-visible { outline:2px solid #eee; outline-offset:4px; }
+      .rilo-contract-status { display:block; color:#bdbdc7; font-size:12px; line-height:1.6; }
+      .rilo-contract-status:not(:empty) { margin-top:10px; }
+      @media(max-width:480px) { .rilo-contract { padding:16px; } .rilo-contract-row { flex-wrap:wrap; gap:12px; } .rilo-contract-row code { flex-basis:100%; } .rilo-contract-row button { width:100%; font-size:14px; } }
+    `}</style>
+  </div>;
+}
+
 export function OriginalHero({onExplore,onTechnology,search}: {onExplore():void;onTechnology():void;search?:ReactNode}) {
   return <section className="rt-hero rt-home-hero"><div className="rt-hero-copy"><div className="rt-eyebrow"><span className="rt-dot"/> THE LAUNCH INTELLIGENCE LAYER</div><h1 className="rt-powered">POWERED BY <span>RILO</span></h1><p>Explore Solana tokens. Inspect token controls, wallet connections, and available developer history before your next move.</p>{search}<div className="rt-hero-actions"><button className="rt-primary" onClick={onExplore}>Explore tokens</button><button className="rt-secondary" onClick={onTechnology}>Explore the signals</button></div><div className="rt-hero-meta"><span>◎ SOLANA</span><i/><span>ON-CHAIN MARKETS</span></div></div></section>;
 }
